@@ -38,7 +38,7 @@ export async function GET(req) {
         file_url: publicUrlData.publicUrl,
       };
     });
-    const origin = req.headers.get("origin")?.replace(/\/$/, "");
+
     return new Response(
       JSON.stringify({ status: "ok", document: docsWithUrls }),
       {
@@ -68,7 +68,7 @@ export async function OPTIONS() {
 function corsHeaders() {
   return {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };

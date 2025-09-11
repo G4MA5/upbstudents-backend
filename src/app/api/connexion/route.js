@@ -1,10 +1,6 @@
 import { supabase } from "../../../../lib/supabaseClient";
-import { corsD } from "../../../../lib/corsMiddleware";
 
-export async function POST(req, res) {
-  // Ajoute la gestion CORS
-  if (corsD(req, res)) return;
-
+export async function POST(req) {
   try {
     const { email, password } = await req.json();
 
