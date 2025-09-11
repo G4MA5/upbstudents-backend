@@ -42,7 +42,15 @@ export async function GET(req) {
 
     return new Response(
       JSON.stringify({ status: "ok", document: docsWithUrls }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        },
+      }
     );
   } catch (err) {
     return new Response(
