@@ -43,7 +43,7 @@ export async function GET(req) {
       JSON.stringify({ status: "ok", document: docsWithUrls }),
       {
         status: 200,
-        headers: corsHeaders(req),
+        headers: corsHeaders(),
       }
     );
   } catch (err) {
@@ -51,26 +51,25 @@ export async function GET(req) {
       JSON.stringify({ status: "error", message: err.message }),
       {
         status: 500,
-        headers: corsHeaders(req),
+        headers: corsHeaders(),
       }
     );
   }
 }
 
-export async function OPTIONS(req) {
+export async function OPTIONS() {
   return new Response(null, {
     status: 200,
-    headers: corsHeaders(req),
+    headers: corsHeaders(),
   });
 }
 
 // 🔑 Factorisation : éviter d’oublier les headers
-function corsHeaders(req) {
+function corsHeaders() {
   return {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Credentials": "true",
   };
 }
