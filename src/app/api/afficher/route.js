@@ -1,6 +1,5 @@
 import { supabase } from "../../../../lib/supabaseClient.js";
 
-// Pour Next.js API route (app router)
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const filiere = searchParams.get("filiere") || "%";
@@ -25,14 +24,14 @@ export async function GET(req) {
 
     const docsWithUrls = docs.map((doc) => {
       const { data: publicUrlData } = supabase.storage
-        .from("Doc") // ← mets le nom réel ici
+        .from("Doc") // ← ton vrai bucket
         .getPublicUrl(doc.filename);
 
       return {
         title: doc.matiere,
         filiere: doc.filiere,
         annee: doc.annee,
-        licence: doc.niveau, // On mappe niveau → licence
+        licence: doc.niveau,
         session: doc.session,
         type: doc.type,
         image: "/default-cover.png",
@@ -44,41 +43,34 @@ export async function GET(req) {
       JSON.stringify({ status: "ok", document: docsWithUrls }),
       {
         status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-          "Access-Control-Allow-Credentials": "true",
-        },
+        headers: corsHeaders(),
       }
     );
   } catch (err) {
     return new Response(
-      null,
       JSON.stringify({ status: "error", message: err.message }),
       {
         status: 500,
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
-          "Access-Control-Allow-Credentials": "true",
-        },
+        headers: corsHeaders(),
       }
     );
   }
 }
 
-export async function OPTIONS(req) {
+export async function OPTIONS() {
   return new Response(null, {
     status: 200,
-    headers: {
-      "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "Access-Control-Allow-Credentials": "true",
-    },
+    headers: corsHeaders(),
   });
+}
+
+// 🔑 Factorisation : éviter d’oublier les headers
+function corsHeaders() {
+  return {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Credentials": "true",
+  };
 }
