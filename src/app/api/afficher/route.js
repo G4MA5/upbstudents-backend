@@ -49,11 +49,13 @@ export async function GET(req) {
           "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          "Access-Control-Allow-Credentials": "true",
         },
       }
     );
   } catch (err) {
     return new Response(
+      null,
       JSON.stringify({ status: "error", message: err.message }),
       {
         status: 500,
@@ -62,6 +64,7 @@ export async function GET(req) {
           "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
           "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          "Access-Control-Allow-Credentials": "true",
         },
       }
     );
@@ -75,6 +78,7 @@ export async function OPTIONS(req) {
       "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Credentials": "true",
     },
   });
 }
