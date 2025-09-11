@@ -68,7 +68,7 @@ export async function OPTIONS() {
 function corsHeaders() {
   return {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "https://upbstudents.netlify.app",
+    "Access-Control-Allow-Origin": "https://joyful-cat-8e488a.netlify.app",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
   };
