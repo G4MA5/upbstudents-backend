@@ -70,13 +70,6 @@ export async function GET(req) {
   }
 }
 
-export async function OPTIONS() {
-  return new Response(null, {
-    status: 200,
-    headers: corsHeaders(origin),
-  });
-}
-
 export async function OPTIONS(req) {
   const origin = req.headers.get("origin") || "";
   return new Response(null, {
