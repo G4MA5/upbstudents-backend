@@ -1,6 +1,19 @@
 import { supabase } from "../../../../lib/supabaseClient.js";
-
+const FRONT_ORIGINS = ["https://upbstudents-labibliotheque.netlify.app"];
+function corsHeaders(origin) {
+  const headers = {
+    "Content-Type": "application/json",
+  };
+  if (FRONT_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    headers["Access-Control-Allow-Credentials"] = "true";
+  }
+  return headers;
+}
 export async function GET(req) {
+  const origin = req.headers.get("origin") || "";
   const { searchParams } = new URL(req.url);
   const filiere = searchParams.get("filiere") || "%";
   const annee = searchParams.get("annee") || "%";
@@ -43,7 +56,7 @@ export async function GET(req) {
       JSON.stringify({ status: "ok", document: docsWithUrls }),
       {
         status: 200,
-        headers: corsHeaders(),
+        headers: corsHeaders(origin),
       }
     );
   } catch (err) {
@@ -51,7 +64,7 @@ export async function GET(req) {
       JSON.stringify({ status: "error", message: err.message }),
       {
         status: 500,
-        headers: corsHeaders(),
+        headers: corsHeaders(origin),
       }
     );
   }
@@ -60,16 +73,14 @@ export async function GET(req) {
 export async function OPTIONS() {
   return new Response(null, {
     status: 200,
-    headers: corsHeaders(),
+    headers: corsHeaders(origin),
   });
 }
 
-// 🔑 Factorisation : éviter d’oublier les headers
-function corsHeaders() {
-  return {
-    "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "https://joyful-cat-8e488a.netlify.app",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-  };
+export async function OPTIONS(req) {
+  const origin = req.headers.get("origin") || "";
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(origin),
+  });
 }

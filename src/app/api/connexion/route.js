@@ -1,6 +1,19 @@
 import { supabase } from "../../../../lib/supabaseClient";
-
+const FRONT_ORIGINS = ["https://upbstudents-labibliotheque.netlify.app"];
+function corsHeaders(origin) {
+  const headers = {
+    "Content-Type": "application/json",
+  };
+  if (FRONT_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    headers["Access-Control-Allow-Credentials"] = "true";
+  }
+  return headers;
+}
 export async function POST(req) {
+  const origin = req.headers.get("origin") || "";
   try {
     const { email, password } = await req.json();
 
@@ -17,7 +30,7 @@ export async function POST(req) {
           message:
             "Adresse email ou mot de passe incorrect. Veuillez réessayer.",
         }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
+        { status: 400, headers: corsHeaders(origin) }
       );
     }
 
@@ -29,7 +42,7 @@ export async function POST(req) {
           message:
             "Veuillez confirmer votre adresse email avant de vous connecter. Un email de confirmation vous a été envoyé.",
         }),
-        { status: 403, headers: { "Content-Type": "application/json" } }
+        { status: 403, headers: corsHeaders(origin) }
       );
     }
 
@@ -43,7 +56,7 @@ export async function POST(req) {
     if (profileError) {
       return new Response(
         JSON.stringify({ status: "error", message: profileError.message }),
-        { status: 404, headers: { "Content-Type": "application/json" } }
+        { status: 404, headers: corsHeaders(origin) }
       );
     }
 
@@ -55,12 +68,19 @@ export async function POST(req) {
         profile,
         token: data.session?.access_token || null,
       }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
+      { status: 200, headers: corsHeaders(origin) }
     );
   } catch (err) {
     return new Response(
       JSON.stringify({ status: "error", message: err.message }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      { status: 500, headers: corsHeaders(origin) }
     );
   }
+}
+export async function OPTIONS(req) {
+  const origin = req.headers.get("origin") || "";
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(origin),
+  });
 }
