@@ -3,6 +3,9 @@ const FRONT_ORIGINS = ["https://upbstudents-labibliotheque.netlify.app"];
 function corsHeaders(origin) {
   const headers = {
     "Content-Type": "application/json",
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
   };
   if (FRONT_ORIGINS.includes(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
@@ -49,6 +52,9 @@ export async function GET(req) {
         type: doc.type,
         image: "/default-cover.png",
         file_url: publicUrlData.publicUrl,
+
+        id: doc.id,
+        filePath: doc.filename,
       };
     });
 

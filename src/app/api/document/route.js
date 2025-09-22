@@ -119,6 +119,13 @@ export async function POST(req) {
 
     if (dbError) throw dbError;
 
+    const { error: updateError } = await supabase
+      .from("utilisateurs")
+      .update({ proprietaire: true })
+      .eq("num_id", admis);
+
+    if (updateError) throw updateError;
+
     return new Response(
       JSON.stringify({ status: "ok", document: docData[0] }),
       { status: 200, headers: corsHeaders(origin) }
