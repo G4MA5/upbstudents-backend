@@ -1,43 +1,29 @@
-// Mon back : /api/utilisateur - SOLUTION OPTIMALE
-
 import { supabase } from "../../../../lib/supabaseClient.js";
 
-// L'origine autorisée (doit être la même que dans le middleware)
-const FRONT_ORIGIN = "https://upbstudents-labibliotheque.netlify.app";
+const FRONT_ORIGINS = ["https://upbstudents-labibliotheque.netlify.app"];
 
-// Headers CORS complets pour la réponse OPTIONS (pré-vol)
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": FRONT_ORIGIN,
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization", // IMPORTANT pour l'en-tête Bearer
-  "Access-Control-Allow-Credentials": "true",
-  "Access-Control-Max-Age": "86400",
-};
-
-// 🛑 NOUVEAU : Fonction pour gérer la requête OPTIONS (pré-vol)
-export async function OPTIONS() {
-  // Répond avec le statut 204 No Content et les headers CORS requis par le navigateur
-  return new Response(null, {
-    status: 204,
-    headers: CORS_HEADERS,
-  });
+function corsHeaders(origin) {
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+  if (FRONT_ORIGINS.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    headers["Access-Control-Allow-Credentials"] = "true";
+  }
+  return headers;
 }
 
-// 🛑 MODIFIÉ : Fonction pour gérer la requête GET (requête réelle)
 export async function GET(req) {
+  const origin = req.headers.get("origin") || "";
   const authHeader = req.headers.get("Authorization");
 
   if (!authHeader) {
     return new Response(
       JSON.stringify({ status: "error", message: "Token manquant" }),
-      // Ajout du header ACAO et Credentials pour la requête réelle.
-      {
-        status: 401,
-        headers: {
-          "Access-Control-Allow-Origin": FRONT_ORIGIN,
-          "Access-Control-Allow-Credentials": "true",
-        },
-      }
+      { status: 401, headers: corsHeaders(origin) }
     );
   }
 
@@ -54,13 +40,7 @@ export async function GET(req) {
           status: "error",
           message: "Utilisateur non connecté",
         }),
-        {
-          status: 401,
-          headers: {
-            "Access-Control-Allow-Origin": FRONT_ORIGIN,
-            "Access-Control-Allow-Credentials": "true",
-          },
-        }
+        { status: 401, headers: corsHeaders(origin) }
       );
     }
 
@@ -73,36 +53,26 @@ export async function GET(req) {
     if (utilisateurError || !utilisateurData) {
       return new Response(
         JSON.stringify({ status: "error", message: "Utilisateur introuvable" }),
-        {
-          status: 404,
-          headers: {
-            "Access-Control-Allow-Origin": FRONT_ORIGIN,
-            "Access-Control-Allow-Credentials": "true",
-          },
-        }
+        { status: 404, headers: corsHeaders(origin) }
       );
     }
 
     return new Response(
       JSON.stringify({ status: "ok", utilisateur: utilisateurData }),
-      {
-        status: 200,
-        headers: {
-          "Access-Control-Allow-Origin": FRONT_ORIGIN,
-          "Access-Control-Allow-Credentials": "true",
-        },
-      }
+      { status: 200, headers: corsHeaders(origin) }
     );
   } catch (err) {
     return new Response(
       JSON.stringify({ status: "error", message: err.message }),
-      {
-        status: 500,
-        headers: {
-          "Access-Control-Allow-Origin": FRONT_ORIGIN,
-          "Access-Control-Allow-Credentials": "true",
-        },
-      }
+      { status: 500, headers: corsHeaders(origin) }
     );
   }
+}
+
+export async function OPTIONS(req) {
+  const origin = req.headers.get("origin") || "";
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(origin),
+  });
 }
