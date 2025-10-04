@@ -1,4 +1,3 @@
-// backend/api/utilisateur/route.js
 import { supabase } from "../../../../lib/supabaseClient.js";
 
 const FRONT_ORIGINS = ["https://upbstudents-labibliotheque.netlify.app"];
@@ -16,11 +15,6 @@ function corsHeaders(origin) {
   return headers;
 }
 
-export async function OPTIONS(req) {
-  const origin = req.headers.get("origin") || "";
-  return new Response(null, { status: 204, headers: corsHeaders(origin) });
-}
-
 export async function GET(req) {
   const origin = req.headers.get("origin") || "";
   const authHeader = req.headers.get("Authorization");
@@ -35,13 +29,12 @@ export async function GET(req) {
   const token = authHeader.replace("Bearer ", "");
 
   try {
-    // Vérifie le token dans Supabase
     const {
       data: { user },
-      error: authError,
+      error,
     } = await supabase.auth.getUser(token);
 
-    if (authError || !user) {
+    if (error || !user) {
       return new Response(
         JSON.stringify({
           status: "error",
@@ -51,7 +44,6 @@ export async function GET(req) {
       );
     }
 
-    // Récupération des infos utilisateur
     const { data: utilisateurData, error: utilisateurError } = await supabase
       .from("utilisateurs")
       .select("num_id, proprietaire")
@@ -60,10 +52,7 @@ export async function GET(req) {
 
     if (utilisateurError || !utilisateurData) {
       return new Response(
-        JSON.stringify({
-          status: "error",
-          message: "Utilisateur introuvable",
-        }),
+        JSON.stringify({ status: "error", message: "Utilisateur introuvable" }),
         { status: 404, headers: corsHeaders(origin) }
       );
     }
@@ -78,4 +67,12 @@ export async function GET(req) {
       { status: 500, headers: corsHeaders(origin) }
     );
   }
+}
+
+export async function OPTIONS(req) {
+  const origin = req.headers.get("origin") || "";
+  return new Response(null, {
+    status: 204,
+    headers: corsHeaders(origin),
+  });
 }

@@ -6,33 +6,31 @@ const ALLOWED = ["https://upbstudents-labibliotheque.netlify.app"];
 function corsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Allow-Credentials": "true",
-    "Access-Control-Max-Age": "86400",
   };
 }
 
 export function middleware(req) {
   const origin = req.headers.get("origin") || "";
   const isAllowed = ALLOWED.includes(origin);
+  const responseHeaders = new Headers();
 
-  // 🔹 Si c’est une requête préflight (OPTIONS)
+  // ✅ Si c’est une requête preflight OPTIONS
   if (req.method === "OPTIONS") {
-    const headers = new Headers();
     if (isAllowed) {
-      Object.entries(corsHeaders(origin)).forEach(([k, v]) =>
-        headers.set(k, v)
-      );
+      const headers = corsHeaders(origin);
+      Object.entries(headers).forEach(([k, v]) => responseHeaders.set(k, v));
     }
-    return new Response(null, { status: 204, headers });
+    return new Response(null, { status: 204, headers: responseHeaders });
   }
 
-  // 🔹 Sinon, pour toutes les autres requêtes
+  // ✅ Pour les autres requêtes
   const res = NextResponse.next();
   if (isAllowed) {
-    const ch = corsHeaders(origin);
-    Object.entries(ch).forEach(([k, v]) => res.headers.set(k, v));
+    const headers = corsHeaders(origin);
+    Object.entries(headers).forEach(([k, v]) => res.headers.set(k, v));
   }
   return res;
 }
