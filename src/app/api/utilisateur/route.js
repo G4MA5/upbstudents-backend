@@ -1,28 +1,12 @@
 import { supabase } from "../../../../lib/supabaseClient.js";
 
-const FRONT_ORIGINS = ["https://upbstudents-labibliotheque.netlify.app"];
-
-function corsHeaders(origin) {
-  const headers = {
-    "Content-Type": "application/json",
-  };
-  if (FRONT_ORIGINS.includes(origin)) {
-    headers["Access-Control-Allow-Origin"] = origin;
-    headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
-    headers["Access-Control-Allow-Credentials"] = "true";
-  }
-  return headers;
-}
-
 export async function GET(req) {
-  const origin = req.headers.get("origin") || "";
   const authHeader = req.headers.get("Authorization");
 
   if (!authHeader) {
     return new Response(
       JSON.stringify({ status: "error", message: "Token manquant" }),
-      { status: 401, headers: corsHeaders(origin) }
+      { status: 401 }
     );
   }
 
@@ -40,7 +24,7 @@ export async function GET(req) {
           status: "error",
           message: "Utilisateur non connecté",
         }),
-        { status: 401, headers: corsHeaders(origin) }
+        { status: 401 }
       );
     }
 
@@ -53,26 +37,22 @@ export async function GET(req) {
     if (utilisateurError || !utilisateurData) {
       return new Response(
         JSON.stringify({ status: "error", message: "Utilisateur introuvable" }),
-        { status: 404, headers: corsHeaders(origin) }
+        { status: 404 }
       );
     }
 
     return new Response(
       JSON.stringify({ status: "ok", utilisateur: utilisateurData }),
-      { status: 200, headers: corsHeaders(origin) }
+      { status: 200 }
     );
   } catch (err) {
     return new Response(
       JSON.stringify({ status: "error", message: err.message }),
-      { status: 500, headers: corsHeaders(origin) }
+      { status: 500 }
     );
   }
 }
 
 export async function OPTIONS(req) {
-  const origin = req.headers.get("origin") || "";
-  return new Response(null, {
-    status: 204,
-    headers: corsHeaders(origin),
-  });
+  return new Response(null, { status: 204 });
 }
