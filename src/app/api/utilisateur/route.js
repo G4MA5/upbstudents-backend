@@ -4,12 +4,13 @@ const FRONT_ORIGINS = ["https://upbstudents-labibliotheque.netlify.app"];
 
 function corsHeaders(origin) {
   const headers = { "Content-Type": "application/json" };
-  if (FRONT_ORIGINS.includes(origin)) {
-    headers["Access-Control-Allow-Origin"] = origin;
-    headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
-    headers["Access-Control-Allow-Headers"] = "Authorization";
-    headers["Access-Control-Allow-Credentials"] = "true";
-  }
+  // Ajoute toujours le header pour OPTIONS
+  headers["Access-Control-Allow-Origin"] = FRONT_ORIGINS.includes(origin)
+    ? origin
+    : "*";
+  headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
+  headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+  headers["Access-Control-Allow-Credentials"] = "true";
   return headers;
 }
 
