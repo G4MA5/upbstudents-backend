@@ -6,7 +6,7 @@ function corsHeaders(origin) {
   const headers = { "Content-Type": "application/json" };
   if (FRONT_ORIGINS.includes(origin)) {
     headers["Access-Control-Allow-Origin"] = origin;
-    headers["Access-Control-Allow-Methods"] = "GET, OPTIONS";
+    headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
     headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
     headers["Access-Control-Allow-Credentials"] = "true";
   }
