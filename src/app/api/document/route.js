@@ -63,6 +63,7 @@ export async function POST(req) {
     }
 
     if (!file) {
+      te;
       return new Response(
         JSON.stringify({ status: "error", message: "Aucun fichier fourni" }),
         { status: 400, headers: corsHeaders(origin) }
@@ -86,11 +87,32 @@ export async function POST(req) {
     const admis = utilisateurData.num_id;
 
     // Générer nom unique + buffer
-    const uniqueFileName = `${type}_${filiere}_${session}`;
+    const uniqueFileName = `${type}_${filiere}_${session}_${matiere}_${annee}_${niveau}`;
     const fileBuffer = new Uint8Array(await file.arrayBuffer());
 
+    // Vérifier si le filename existe déjà dans la table `document`
+    const { data: existing, error: existingErr } = await supabase
+      .from("document")
+      .select("id")
+      .eq("filename", uniqueFileName)
+      .maybeSingle();
+
+    if (existingErr) {
+      throw existingErr;
+    }
+
+    if (existing) {
+      return new Response(
+        JSON.stringify({
+          status: "error",
+          message:
+            "Un document avec ce nom existe déjà. Veuillez modifier les métadonnées ou choisir un autre fichier.",
+        }),
+        { status: 409, headers: corsHeaders(origin) }
+      );
+    }
+
     // Upload fichier
-    //pro
     const { error: uploadError } = await supabaseAdmin.storage
       .from("Doc")
       .upload(uniqueFileName, fileBuffer, {
@@ -98,7 +120,6 @@ export async function POST(req) {
       });
 
     if (uploadError) throw uploadError;
-    // pro
 
     // Insertion table documents
     const { data: docData, error: dbError } = await supabase

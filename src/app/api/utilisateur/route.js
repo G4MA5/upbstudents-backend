@@ -15,16 +15,15 @@ function corsHeaders(origin) {
 
 export async function GET(req) {
   const origin = req.headers.get("origin") || "";
-  const authHeader = req.headers.get("Authorization");
-
-  if (!authHeader) {
-    return new Response(
-      JSON.stringify({ status: "error", message: "Token manquant" }),
-      { status: 401, headers: corsHeaders(origin) }
-    );
-  }
-
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ status: "error", message: "Token manquant" }),
+        { status: 401, headers: corsHeaders(origin) }
+      );
+    }
+
     const token = authHeader.replace("Bearer ", "");
     const {
       data: { user },
