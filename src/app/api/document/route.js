@@ -87,7 +87,7 @@ export async function POST(req) {
     const admis = utilisateurData.num_id;
 
     // Générer nom unique + buffer
-    const uniqueFileName = `${type}_${filiere}_${session}_${matiere}_${annee}_${niveau}`;
+    const uniqueFileName = `${type}_${filiere}_${matiere}_${annee}_${niveau}_${session}`;
     const fileBuffer = new Uint8Array(await file.arrayBuffer());
 
     // Vérifier si le filename existe déjà dans la table `document`
