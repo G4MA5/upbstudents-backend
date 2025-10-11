@@ -116,7 +116,7 @@ export async function POST(req) {
         JSON.stringify({
           status: "error",
           message:
-            "Un document avec ce nom existe déjà. Veuillez modifier les métadonnées ou choisir un autre fichier.",
+            "Un document avec ce nom existe déjà. Veuillez modifier les métadonnées.",
         }),
         { status: 409, headers: corsHeaders(origin) }
       );
