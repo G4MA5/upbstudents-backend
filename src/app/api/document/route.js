@@ -63,6 +63,7 @@ export async function POST(req) {
     }
 
     if (!file) {
+      te;
       return new Response(
         JSON.stringify({ status: "error", message: "Aucun fichier fourni" }),
         { status: 400, headers: corsHeaders(origin) }
@@ -85,19 +86,8 @@ export async function POST(req) {
 
     const admis = utilisateurData.num_id;
 
-    // Générer nom unique (base) + conserver l'extension du fichier original
-    const baseName =
-      `${type}_${matiere}_${filiere}_${annee}_${niveau}_${session}`.replace(
-        /\s+/g,
-        "_"
-      );
-    const originalName = (file.name || "").toString();
-    const ext = originalName.includes(".")
-      ? originalName.split(".").pop().toLowerCase()
-      : file.type
-      ? file.type.split("/").pop()
-      : "";
-    const uniqueFileName = ext ? `${baseName}.${ext}` : baseName;
+    // Générer nom unique + buffer
+    const uniqueFileName = `${type}_${filiere}_${matiere}_${annee}_${niveau}_${session}`;
     const fileBuffer = new Uint8Array(await file.arrayBuffer());
 
     // Vérifier si le filename existe déjà dans la table `document`
@@ -116,13 +106,13 @@ export async function POST(req) {
         JSON.stringify({
           status: "error",
           message:
-            "Un document avec ce nom existe déjà. Veuillez modifier les métadonnées.",
+            "Un document avec ce nom existe déjà. Veuillez modifier les métadonnées ou choisir un autre fichier.",
         }),
         { status: 409, headers: corsHeaders(origin) }
       );
     }
 
-    // Upload fichier (utilise le nom avec extension)
+    // Upload fichier
     const { error: uploadError } = await supabaseAdmin.storage
       .from("Doc")
       .upload(uniqueFileName, fileBuffer, {
