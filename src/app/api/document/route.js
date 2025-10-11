@@ -63,7 +63,6 @@ export async function POST(req) {
     }
 
     if (!file) {
-      te;
       return new Response(
         JSON.stringify({ status: "error", message: "Aucun fichier fourni" }),
         { status: 400, headers: corsHeaders(origin) }
@@ -86,8 +85,19 @@ export async function POST(req) {
 
     const admis = utilisateurData.num_id;
 
-    // Générer nom unique + buffer
-    const uniqueFileName = `${type}_${matiere}_${filiere}_${annee}_${niveau}_${session}`;
+    // Générer nom unique (base) + conserver l'extension du fichier original
+    const baseName =
+      `${type}_${matiere}_${filiere}_${annee}_${niveau}_${session}`.replace(
+        /\s+/g,
+        "_"
+      );
+    const originalName = (file.name || "").toString();
+    const ext = originalName.includes(".")
+      ? originalName.split(".").pop().toLowerCase()
+      : file.type
+      ? file.type.split("/").pop()
+      : "";
+    const uniqueFileName = ext ? `${baseName}.${ext}` : baseName;
     const fileBuffer = new Uint8Array(await file.arrayBuffer());
 
     // Vérifier si le filename existe déjà dans la table `document`
@@ -112,7 +122,7 @@ export async function POST(req) {
       );
     }
 
-    // Upload fichier
+    // Upload fichier (utilise le nom avec extension)
     const { error: uploadError } = await supabaseAdmin.storage
       .from("Doc")
       .upload(uniqueFileName, fileBuffer, {
