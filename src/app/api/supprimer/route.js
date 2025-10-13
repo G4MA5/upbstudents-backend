@@ -1,6 +1,9 @@
 import { supabaseAdmin } from "../../../../lib/supabaseClient.js";
 
-const FRONT_ORIGINS = ["https://upbstudents-labibliotheque.netlify.app"];
+const FRONT_ORIGINS = [
+  "https://upbstudents-labibliotheque.netlify.app",
+  "https://upbstudents-labibliotheque.com",
+];
 
 function corsHeaders(origin) {
   const headers = { "Content-Type": "application/json" };

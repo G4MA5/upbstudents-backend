@@ -2,7 +2,10 @@
 import { NextResponse } from "next/server";
 
 // Liste des origines autorisées
-const ALLOWED = ["https://upbstudents-labibliotheque.netlify.app"];
+const ALLOWED = [
+  "https://upbstudents-labibliotheque.netlify.app",
+  "https://upbstudents-labibliotheque.com",
+];
 
 function corsHeaders(origin) {
   return {
