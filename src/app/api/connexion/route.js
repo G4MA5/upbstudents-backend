@@ -27,6 +27,24 @@ export async function POST(req) {
     });
 
     if (error) {
+      // Certains messages d'erreur de Supabase indiquent que l'email
+      // n'est pas encore confirmé. Dans ce cas, renvoyer 403 Forbidden
+      // pour indiquer que l'authentification est refusée pour l'instant.
+      const errMsg = String(error?.message || error?.error_description || "");
+      const isUnconfirmed =
+        /confirm|verification|verify|not confirmed|not verified/i.test(errMsg);
+      if (isUnconfirmed) {
+        return new Response(
+          JSON.stringify({
+            status: "error",
+            message:
+              "Veuillez confirmer votre adresse email avant de vous connecter. Un email de confirmation vous a été envoyé. Vérifiez vos spams.",
+          }),
+          { status: 403, headers: corsHeaders(origin) }
+        );
+      }
+
+      // Sinon retourner l'erreur générique (identifiants invalides)
       return new Response(
         JSON.stringify({
           status: "error",
@@ -43,7 +61,7 @@ export async function POST(req) {
         JSON.stringify({
           status: "error",
           message:
-            "Veuillez confirmer votre adresse email avant de vous connecter. Un email de confirmation vous a été envoyé.",
+            "Veuillez confirmer votre adresse email avant de vous connecter. Un email de confirmation vous a été envoyé. Vérifiez vos spams.",
         }),
         { status: 403, headers: corsHeaders(origin) }
       );
