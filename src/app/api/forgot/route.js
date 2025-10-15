@@ -32,8 +32,7 @@ export async function POST(req) {
     }
 
     const { error } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
-      redirectTo:
-        "https://upbstudents-labibliotheque.netlify.app/mot-de-passe-oublie", // ton front
+      redirectTo: "https://upbstudents-labibliotheque.com/mot-de-passe-oublie", // ton front
     });
 
     if (error) {
