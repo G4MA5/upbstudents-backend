@@ -8,6 +8,9 @@ import {
   route,
 } from "../../../../lib/http.js";
 import { rateLimit } from "../../../../lib/rateLimit.js";
+// ---------- Divine : WhatsApp (import) ----------
+import { notifyWhatsApp } from "../../../../lib/whatsapp.js";
+// ---------- Divine : fin ----------
 import {
   createAnonClient,
   supabaseAdmin,
@@ -108,6 +111,33 @@ export const POST = route(async (req) => {
   if (insertError && insertError.code !== "23505") {
     console.error("[inscription] profil non créé", insertError);
   }
+
+  // ---------- Divine : début WhatsApp ----------
+  // Le formulaire d'inscription pose la question "recevoir les notifications
+  // WhatsApp ?" : on enregistre la réponse (oui / non). Sans réponse (ancien
+  // client), on n'enregistre rien : la fenêtre de consentement sera proposée plus tard.
+  // Enregistrement "au mieux" : si la migration n'est pas appliquée, l'inscription n'est pas bloquée.
+  const whatsappAccepted = body.whatsapp === true;
+  if (typeof body.whatsapp === "boolean") {
+    const { error: optinError } = await supabaseAdmin
+      .from("utilisateurs")
+      .update({ whatsapp_optin: whatsappAccepted, whatsapp_optin_at: new Date().toISOString() })
+      .eq("user_id", data.user.id);
+    if (optinError) console.error("[inscription] consentement WhatsApp", optinError.message);
+  }
+
+  // Message de bienvenue seulement si le nouvel inscrit a accepté.
+  // (le lien de confirmation, lui, est envoyé par e-mail par Supabase).
+  // La clé "signup:<id>" évite d'envoyer le message deux fois.
+  if (whatsappAccepted) {
+    await notifyWhatsApp(
+      "signup_confirmation",
+      numero,
+      { prenom, email: data.user.email },
+      `signup:${data.user.id}`,
+    );
+  }
+  // ---------- Divine : fin ----------
 
   return ok(req, {
     message:

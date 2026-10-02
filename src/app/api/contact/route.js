@@ -9,6 +9,9 @@ import {
 } from "../../../../lib/http.js";
 import { detailsTable, emailLayout, sendMail } from "../../../../lib/mailer.js";
 import { rateLimit } from "../../../../lib/rateLimit.js";
+// ---------- Divine : WhatsApp (import) ----------
+import { adminPhone, notifyWhatsApp } from "../../../../lib/whatsapp.js";
+// ---------- Divine : fin ----------
 import {
   clean,
   cleanMultiline,
@@ -64,6 +67,17 @@ export const POST = route(async (req) => {
       ])}<div style="margin-top:16px;padding:16px;background:#f9fafb;border-radius:12px;white-space:pre-wrap">${escapeHtml(message)}</div>`,
     ),
   });
+
+  // ---------- Divine : début WhatsApp ----------
+  // On envoie le même message à l'admin sur WhatsApp, juste après l'e-mail.
+  // Si WhatsApp ne marche pas, rien ne casse : l'erreur est seulement écrite dans les logs.
+  await notifyWhatsApp("contact_message", adminPhone(), {
+    nom,
+    email,
+    objet,
+    message,
+  });
+  // ---------- Divine : fin ----------
 
   return ok(req, {
     message:

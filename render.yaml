@@ -1,0 +1,38 @@
+# Déploiement de wa-service sur Render (Blueprint) : Render → New → Blueprint → choisir ce dépôt.
+# Guide complet : services/DEPLOY-RENDER.md
+services:
+  - type: web
+    name: upb-wa-service
+    runtime: node
+    plan: free                    # passer à "starter" pour ne plus avoir de mise en veille
+    region: frankfurt             # le plus proche de la Côte d'Ivoire parmi les régions Render
+    rootDir: services/wa-service
+    buildCommand: npm ci
+    startCommand: node src/index.js
+    healthCheckPath: /ping
+    autoDeploy: true
+    # Ne redéployer (donc redémarrer WhatsApp) que si le code de wa-service change :
+    # un commit qui ne touche que le backend Next ou le frontend ne déclenche rien.
+    buildFilter:
+      paths:
+        - services/wa-service/**
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # La session WhatsApp et la file sont stockées dans Supabase (le disque Render gratuit est éphémère).
+      - key: SESSION_STORE
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false               # à renseigner dans le tableau de bord Render
+      - key: SUPABASE_SERVICE_KEY
+        sync: false               # clé "service_role" (secrète) — à renseigner dans Render
+      - key: DEFAULT_COUNTRY_CODE
+        value: "225"
+      - key: BROADCAST_MAX_RECIPIENTS
+        value: "1000"
+      # Générées par Render : à copier ensuite dans Vercel (WA_API_KEY) et pour la page /qr.
+      - key: API_KEY
+        generateValue: true
+      # Temporaire : sert seulement à afficher le QR code. À SUPPRIMER une fois le numéro connecté.
+      - key: QR_KEY
+        generateValue: true

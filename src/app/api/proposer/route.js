@@ -34,6 +34,13 @@ import {
   signTicket,
 } from "../../../../lib/proposals.js";
 import { rateLimit } from "../../../../lib/rateLimit.js";
+// ---------- Divine : WhatsApp (import) ----------
+import {
+  adminPhone,
+  notifyUser,
+  notifyWhatsApp,
+} from "../../../../lib/whatsapp.js";
+// ---------- Divine : fin ----------
 import { supabaseAdmin } from "../../../../lib/supabaseClient.js";
 import {
   ALLOWED_FILE_TYPES,
@@ -73,7 +80,12 @@ async function prepare(req, body) {
 
 async function notifyAdmin(proposal, file, id) {
   const to = adminEmail();
-  if (!to || !isMailConfigured()) return false;
+  // ---------- Divine : début WhatsApp (modifié) ----------
+  // AVANT : on s'arrêtait si l'e-mail n'était pas configuré.
+  // MAINTENANT : on s'arrête seulement si ni l'e-mail NI WhatsApp ne sont configurés.
+  const mailReady = Boolean(to) && isMailConfigured();
+  if (!mailReady && !adminPhone()) return false;
+  // ---------- Divine : fin ----------
 
   const { data: signed } = await supabaseAdmin.storage
     .from(PROPOSALS_BUCKET)
@@ -82,6 +94,35 @@ async function notifyAdmin(proposal, file, id) {
     });
 
   const reviewUrl = `${FRONTEND_URL}/propositions`;
+
+  // ---------- Divine : début WhatsApp ----------
+  // On prévient l'admin sur WhatsApp qu'une proposition attend sa validation.
+  // WhatsApp et e-mail sont indépendants : si l'un échoue, l'autre part quand même.
+  await notifyWhatsApp(
+    "proposal_admin",
+    adminPhone(),
+    {
+      id,
+      nom: proposal.nom,
+      email: proposal.email,
+      type: proposal.type,
+      filiere: proposal.filiere,
+      niveau: proposal.niveau,
+      matiere: proposal.matiere,
+      annee: proposal.annee,
+      session: proposal.session,
+      description: proposal.description,
+      fileName: file.name,
+      fileSize: file.size,
+      downloadUrl: signed?.signedUrl,
+      reviewUrl,
+    },
+    id ? `proposal_admin:${id}` : undefined, // évite les doublons
+  );
+
+  // Si l'e-mail n'est pas configuré, on s'arrête ici (WhatsApp est déjà parti).
+  if (!mailReady) return false;
+  // ---------- Divine : fin ----------
   await sendMail({
     to,
     replyTo: proposal.email,
@@ -128,7 +169,25 @@ ${signed?.signedUrl ? `<a href="${escapeHtml(signed.signedUrl)}" style="display:
   return true;
 }
 
-async function acknowledge(proposal) {
+// Divine : on a ajouté les paramètres "user" et "id" pour WhatsApp.
+async function acknowledge(proposal, user, id) {
+  // ---------- Divine : début WhatsApp ----------
+  // Accusé de réception sur WhatsApp pour le contributeur.
+  // Seuls les contributeurs connectés ont un numéro enregistré :
+  // sinon (user vide), rien n'est envoyé et on passe à l'e-mail.
+  await notifyUser(
+    user?.id,
+    "proposal_received",
+    {
+      nom: proposal.nom,
+      matiere: proposal.matiere,
+      type: proposal.type,
+      filiere: proposal.filiere,
+    },
+    id ? `proposal_received:${id}` : undefined,
+  );
+  // ---------- Divine : fin ----------
+
   if (!isMailConfigured()) return false;
   try {
     await sendMail({
@@ -204,7 +263,8 @@ async function finalize(req, body) {
     );
   }
 
-  const confirmationSent = await acknowledge(proposal);
+  // Divine : on passe "user" et "id" à acknowledge pour pouvoir envoyer le WhatsApp.
+  const confirmationSent = await acknowledge(proposal, user, id);
 
   return ok(req, {
     id,

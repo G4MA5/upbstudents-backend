@@ -1,0 +1,5 @@
+*/.env
+/.env
+*/node_modules
+wa-service/auth/
+wa-service/data/

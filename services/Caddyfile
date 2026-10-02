@@ -1,0 +1,21 @@
+# Reverse proxy HTTPS (Caddy obtient et renouvelle seul les certificats Let's Encrypt).
+# WA_DOMAIN vient du fichier services/.env  (ex. wa.mondomaine.com)
+# Prérequis : l'enregistrement DNS de ce domaine pointe vers l'IP du serveur, ports 80 et 443 ouverts.
+
+{$WA_DOMAIN} {
+	# Les requêtes de diffusion contiennent une liste de destinataires : 2 Mo suffisent largement.
+	request_body {
+		max_size 2MB
+	}
+	reverse_proxy wa-service:3001
+}
+
+# storage-service (seulement si vous le déployez, avec --profile storage) :
+# décommentez ce bloc et renseignez STORAGE_DOMAIN dans services/.env
+#
+# {$STORAGE_DOMAIN} {
+# 	request_body {
+# 		max_size 12MB
+# 	}
+# 	reverse_proxy storage-service:3002
+# }

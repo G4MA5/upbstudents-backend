@@ -27,6 +27,9 @@ import {
 import { isMissingTable, PROPOSALS_TABLE } from "../../../../lib/proposals.js";
 import { supabaseAdmin } from "../../../../lib/supabaseClient.js";
 import { clean, escapeHtml } from "../../../../lib/validation.js";
+// ---------- Divine : WhatsApp (import) ----------
+import { notifyUser } from "../../../../lib/whatsapp.js";
+// ---------- Divine : fin ----------
 
 const MIGRATION_MISSING =
   "La file de validation n'est pas encore activée sur le serveur. Les propositions sont transmises par e-mail en attendant.";
@@ -142,6 +145,16 @@ export const POST = route(async (req) => {
       "Votre proposition de document",
       `Merci pour votre proposition « ${proposal.matiere} ». Après examen, elle n'a pas pu être publiée.${motif ? ` Motif : ${motif}` : ""}`,
     );
+    // ---------- Divine : début WhatsApp ----------
+    // Proposition refusée : on prévient aussi le contributeur sur WhatsApp
+    // (seulement s'il avait un compte, car c'est là qu'on trouve son numéro).
+    await notifyUser(
+      proposal.user_id,
+      "proposal_rejected",
+      { nom: proposal.nom, matiere: proposal.matiere, motif },
+      `proposal_rejected:${proposal.id}`,
+    );
+    // ---------- Divine : fin ----------
     return ok(req, { message: "La proposition a été refusée." });
   }
 
@@ -180,6 +193,16 @@ export const POST = route(async (req) => {
       "Votre document est en ligne",
       `Bonne nouvelle : votre document « ${meta.matiere} » a été vérifié et publié dans la bibliothèque. Merci pour votre contribution !`,
     );
+    // ---------- Divine : début WhatsApp ----------
+    // Document publié : on prévient aussi le contributeur sur WhatsApp
+    // (seulement s'il avait un compte). La clé évite d'envoyer deux fois.
+    await notifyUser(
+      proposal.user_id,
+      "proposal_published",
+      { nom: proposal.nom, matiere: meta.matiere },
+      `proposal_published:${proposal.id}`,
+    );
+    // ---------- Divine : fin ----------
     return ok(req, { document, message: "Le document a été publié dans la bibliothèque." });
   }
 

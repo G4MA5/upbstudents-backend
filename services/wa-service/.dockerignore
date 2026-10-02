@@ -1,0 +1,10 @@
+node_modules
+auth
+data
+.env
+.env.*
+!.env.example
+npm-debug.log*
+README.md
+Dockerfile
+.dockerignore

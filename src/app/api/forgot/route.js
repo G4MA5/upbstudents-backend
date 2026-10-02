@@ -8,6 +8,10 @@ import {
   route,
 } from "../../../../lib/http.js";
 import { rateLimit } from "../../../../lib/rateLimit.js";
+// ---------- Divine : WhatsApp (imports) ----------
+import { after } from "next/server";
+import { notifyWhatsApp, profileByEmail } from "../../../../lib/whatsapp.js";
+// ---------- Divine : fin ----------
 import { createAnonClient } from "../../../../lib/supabaseClient.js";
 import { isEmail, normalizeEmail } from "../../../../lib/validation.js";
 
@@ -39,6 +43,24 @@ export const POST = route(async (req) => {
     // Unknown address and other errors get the same answer, so the endpoint
     // cannot be used to find out who has an account.
     console.error("[forgot]", error.message);
+  } else {
+    // ---------- Divine : début WhatsApp ----------
+    // On envoie le message APRÈS avoir répondu au client (after).
+    // Ainsi, le temps de réponse ne permet pas de deviner si le compte existe.
+    after(async () => {
+      // On cherche le numéro de téléphone du compte avec son e-mail.
+      const profile = await profileByEmail(email);
+      // Pas de compte, pas de numéro, ou WhatsApp non accepté : on n'envoie rien.
+      if (!profile?.numero || profile.whatsapp_optin !== true) return;
+      // La clé change toutes les 15 minutes : un seul message par fenêtre de 15 min.
+      await notifyWhatsApp(
+        "password_reset_requested",
+        profile.numero,
+        { prenom: profile.prenom, email },
+        `reset:${email}:${Math.floor(Date.now() / (15 * 60_000))}`,
+      );
+    });
+    // ---------- Divine : fin ----------
   }
 
   return ok(req, { message: SENT });

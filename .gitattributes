@@ -1,0 +1,21 @@
+# Fins de ligne : le dépôt et le dossier de travail utilisent LF, sur tous les systèmes.
+# (Évite l'avertissement « LF will be replaced by CRLF » sous Windows.)
+* text=auto eol=lf
+
+# Scripts Windows : ils doivent rester en CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Fichiers binaires : jamais convertis.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.tgz  binary
+*.woff binary
+*.woff2 binary

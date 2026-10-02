@@ -1,0 +1,59 @@
+# Lancement (depuis le dossier services/) :
+#   wa-service seul, accessible en local :        docker compose up -d --build
+#   + HTTPS public (Caddy) pour que Next l'appelle : docker compose --profile proxy up -d --build
+#   + storage-service (optionnel) :                 docker compose --profile proxy --profile storage up -d --build
+# Guide complet : DEPLOY.md
+x-defaults: &defaults
+  restart: always
+  init: true                 # gère proprement les signaux et les processus zombies
+  stop_grace_period: 15s     # laisse le temps de sauvegarder la file avant l'arrêt
+  logging:                   # évite que les logs remplissent le disque
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  wa-service:
+    <<: *defaults
+    build: ./wa-service
+    # 127.0.0.1 : joignable seulement depuis le serveur (le proxy Caddy passe par le réseau interne Docker).
+    ports:
+      - "127.0.0.1:3001:3001"
+    env_file: ./wa-service/.env
+    volumes:
+      - wa-auth:/app/auth    # session WhatsApp (ne pas perdre : sinon rescanner le QR code)
+      - wa-data:/app/data    # file d'attente et campagnes en cours
+
+  # Optionnel : pas encore appelé par le backend Next (les uploads vont directement à Supabase).
+  storage-service:
+    <<: *defaults
+    profiles: ["storage"]
+    build: ./storage-service
+    ports:
+      - "127.0.0.1:3002:3002"
+    env_file: ./storage-service/.env
+
+  # HTTPS public : certificats Let's Encrypt automatiques.
+  caddy:
+    <<: *defaults
+    profiles: ["proxy"]
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      WA_DOMAIN: ${WA_DOMAIN:?Renseignez WA_DOMAIN dans services/.env}
+      STORAGE_DOMAIN: ${STORAGE_DOMAIN:-storage.invalid}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data      # certificats (à conserver)
+      - caddy-config:/config
+    depends_on:
+      - wa-service
+
+volumes:
+  wa-auth:
+  wa-data:
+  caddy-data:
+  caddy-config:
