@@ -7,12 +7,13 @@ const METHODS = "GET, OPTIONS";
 export const GET = route(async (req) => {
   const { searchParams } = new URL(req.url);
   const param = (name) => searchParams.get(name) || "%";
+  const filiereParam = searchParams.get("filiere") ? `%${searchParams.get("filiere")}%` : "%";
 
   const { data: docs, error } = await supabase
     .from("document")
     .select("*")
     .ilike("matiere", param("matiere"))
-    .ilike("filiere", param("filiere"))
+    .ilike("filiere", filiereParam)
     .ilike("annee", param("annee"))
     .ilike("session", param("session"))
     .ilike("type", param("type"))
@@ -27,7 +28,7 @@ export const GET = route(async (req) => {
       .getPublicUrl(doc.filename);
 
     // Same shape as before (title / licence / file_url / filePath) so any
-    // existing client keeps working; `niveau` and `created_at` are additions.
+    // existing client keeps working; `niveau`, `auteur` and `created_at` are additions.
     return {
       id: doc.id,
       title: doc.matiere,
@@ -37,6 +38,8 @@ export const GET = route(async (req) => {
       niveau: doc.niveau,
       session: doc.session,
       type: doc.type,
+      auteur: doc.auteur || null,
+      mention: doc.mention || null,
       image: "/default-cover.png",
       file_url: data.publicUrl,
       filePath: doc.filename,

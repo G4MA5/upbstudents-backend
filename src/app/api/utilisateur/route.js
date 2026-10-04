@@ -1,17 +1,22 @@
 import {
+  HttpError,
   loadProfile,
   ok,
   preflight,
   publicProfile,
+  readJson,
   requireUser,
   route,
 } from "../../../../lib/http.js";
 import { supabaseAdmin } from "../../../../lib/supabaseClient.js";
+
 // ---------- Divine : consentement WhatsApp ----------
 import { getWhatsappConsent } from "../../../../lib/whatsapp.js";
 // ---------- Divine : fin ----------
 
-const METHODS = "GET, OPTIONS";
+import { FILIERES, NIVEAUX } from "../../../../lib/validation.js";
+
+const METHODS = "GET, PATCH, OPTIONS";
 
 export const GET = route(async (req) => {
   const { user } = await requireUser(req);
@@ -23,7 +28,10 @@ export const GET = route(async (req) => {
     .eq("admis", profile.num_id);
 
   // ---------- Divine : consentement WhatsApp (jamais bloquant pour le profil) ----------
-  const whatsapp = await getWhatsappConsent(user.id).catch(() => ({ disponible: false, accepte: null }));
+  const whatsapp = await getWhatsappConsent(user.id).catch(() => ({
+    disponible: false,
+    accepte: null,
+  }));
   // ---------- Divine : fin ----------
 
   return ok(
@@ -40,6 +48,31 @@ export const GET = route(async (req) => {
     {},
     METHODS,
   );
+}, METHODS);
+
+export const PATCH = route(async (req) => {
+  const { user } = await requireUser(req);
+  const body = await readJson(req);
+
+  const filiere = String(body.filiere || "").trim();
+  const niveau = String(body.niveau || "").trim();
+
+  if (!filiere || !FILIERES.includes(filiere)) {
+    throw new HttpError(400, "Filière invalide.");
+  }
+  if (!niveau || !NIVEAUX.includes(niveau)) {
+    throw new HttpError(400, "Niveau invalide.");
+  }
+
+  const { error } = await supabaseAdmin
+    .from("utilisateurs")
+    .update({ filiere, niveau })
+    .eq("user_id", user.id);
+
+  if (error) throw error;
+
+  const profile = await loadProfile(user);
+  return ok(req, { profile: publicProfile(profile) }, {}, METHODS);
 }, METHODS);
 
 export const OPTIONS = preflight(METHODS);
