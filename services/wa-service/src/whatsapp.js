@@ -46,6 +46,26 @@ let lastQr = null; // dernier QR code reçu (affiché par la page /qr)
 export const isReady = () => ready;
 export const currentQr = () => lastQr;
 
+// État détaillé de la connexion, affiché par /health pour diagnostiquer sans lire les logs.
+const status = {
+  etat: "démarrage", // démarrage | connexion | connecté | fermé | session_effacée
+  dernierCodeFermeture: null,
+  dernierMotifFermeture: null,
+  derniereFermetureLe: null,
+  derniereConnexionLe: null,
+  reconnexions: 0,
+  derniereErreurDemarrage: null,
+};
+const iso = () => new Date().toISOString();
+export const getStatus = () => ({ ...status, qrEnAttente: lastQr !== null, messages: { ...stats } });
+
+// Copie des derniers messages envoyés (id → contenu), pour répondre aux demandes de renvoi.
+const sentMessages = new Map();
+const MAX_SENT_KEPT = 1000;
+
+// Compteurs depuis le démarrage du service (affichés par /health).
+const stats = { envoyes: 0, accusesServeur: 0, accusesLivres: 0, accusesLus: 0, erreursMessage: 0 };
+
 /** Écrit la session en attente (à appeler avant l'arrêt du processus). */
 export const flushAuth = () => (auth ? auth.flush() : Promise.resolve());
 
@@ -70,9 +90,13 @@ export async function startWhatsApp() {
   } catch (err) {
     // Supabase ou réseau indisponible au démarrage : on réessaie, sans toucher à la session.
     console.error("[whatsapp] démarrage impossible, nouvel essai dans 10 s :", err.message);
+    status.derniereErreurDemarrage = `${iso()} — ${err.message}`;
     scheduleReconnect(10_000);
     return;
   }
+  status.derniereErreurDemarrage = null;
+  status.etat = "connexion";
+  status.reconnexions += 1;
 
   sock = makeWASocket({
     version,
@@ -87,8 +111,24 @@ export async function startWhatsApp() {
     fireInitQueries: false,
     markOnlineOnConnect: false,
     syncFullHistory: false,
+    // Quand le téléphone du destinataire n'arrive pas à déchiffrer un message (« En attente de
+    // ce message »), il demande un renvoi : Baileys a besoin de retrouver le message d'origine.
+    // Sans cette fonction, le destinataire reste bloqué sur « En attente ».
+    getMessage: async (key) => sentMessages.get(key.id),
   });
   sock.ev.on("creds.update", saveCreds);
+
+  // Accusés de réception : serveur WhatsApp (2), téléphone du destinataire (3), lu (4).
+  // Visibles dans /health : si « serveur » monte mais pas « livres », le téléphone du destinataire ne reçoit pas.
+  sock.ev.on("messages.update", (updates) => {
+    for (const { key, update } of updates) {
+      if (!key?.fromMe || typeof update?.status !== "number") continue;
+      if (update.status === 2) stats.accusesServeur += 1;
+      if (update.status === 3) stats.accusesLivres += 1;
+      if (update.status === 4) stats.accusesLus += 1;
+      if (update.status === 0) stats.erreursMessage += 1;
+    }
+  });
 
   sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
     if (qr) {
@@ -99,16 +139,23 @@ export async function startWhatsApp() {
     if (connection === "open") {
       ready = true;
       lastQr = null;
+      status.etat = "connecté";
+      status.derniereConnexionLe = iso();
       console.log("WhatsApp connecté.");
     }
     if (connection === "close") {
       ready = false;
       const code = lastDisconnect?.error?.output?.statusCode;
+      status.etat = "fermé";
+      status.dernierCodeFermeture = code ?? null;
+      status.dernierMotifFermeture = String(lastDisconnect?.error?.message ?? "").slice(0, 200) || null;
+      status.derniereFermetureLe = iso();
 
       if (code === DisconnectReason.loggedOut) {
         // Déconnecté depuis le téléphone : la session n'est plus valable. On l'efface
         // pour repartir sur un nouveau QR code (page /qr).
         console.error("Déconnexion depuis le téléphone (loggedOut) : session effacée, nouveau QR code à scanner.");
+        status.etat = "session_effacée";
         auth
           ?.clear()
           .catch((err) => console.error("[whatsapp] effacement de la session :", err.message))
@@ -155,5 +202,11 @@ export async function sendText(phone, message) {
   }
 
   const sent = await sock.sendMessage(found.jid, { text: message });
+  // On garde une copie du message pour pouvoir le renvoyer si le destinataire le demande.
+  if (sent?.key?.id && sent.message) {
+    sentMessages.set(sent.key.id, sent.message);
+    if (sentMessages.size > MAX_SENT_KEPT) sentMessages.delete(sentMessages.keys().next().value);
+  }
+  stats.envoyes += 1;
   console.log(`[whatsapp] accepté par le serveur : ${found.jid} (id ${sent?.key?.id})`);
 }

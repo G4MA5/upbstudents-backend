@@ -61,10 +61,12 @@ function dbError(error) {
 }
 
 // ---------- Qui a le droit ? ----------
+// Tolérant sur le format de la variable : virgules, points-virgules, espaces ou retours
+// à la ligne, et guillemets autour de chaque e-mail ("a@x.com","b@y.com") sont acceptés.
 function allowedEmails() {
   return (process.env.BROADCAST_ADMIN_EMAILS || "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
+    .split(/[,;\s]+/)
+    .map((e) => e.replace(/["'`<>[\]()]/g, "").trim().toLowerCase())
     .filter(Boolean);
 }
 
@@ -404,8 +406,14 @@ export const POST = route(async (req) => {
 
     // Même identifiant déjà enregistré : c'est un double clic ou un rejeu → on ne relance rien.
     const existing = await findRow(campaignId);
-    if (existing) {
+    if (existing && existing.statut !== "echec") {
       return ok(req, { campagneId: campaignId, campagne: present(await syncRow(existing)), doublon: true }, {}, METHODS);
+    }
+    // Une tentative précédente qui a ÉCHOUÉ (rien n'est parti) ne bloque pas un nouvel essai :
+    // on retire sa ligne et on repart de zéro avec le même identifiant.
+    if (existing?.statut === "echec") {
+      const { error: cleanError } = await supabaseAdmin.from(TABLE).delete().eq("id", campaignId);
+      if (cleanError) dbError(cleanError);
     }
 
     await assertCanSend(recipients.length, campaignId);

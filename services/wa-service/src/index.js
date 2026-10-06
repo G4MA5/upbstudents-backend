@@ -14,7 +14,14 @@ import {
   saveNow,
 } from "./queue.js";
 import { listTemplates, templates } from "./templates.js";
-import { currentQr, flushAuth, isReady, startWhatsApp } from "./whatsapp.js";
+import { currentQr, flushAuth, getStatus, isReady, startWhatsApp } from "./whatsapp.js";
+
+// Lit une clé d'environnement sans espaces ni guillemets collés par erreur dans le tableau de bord de l'hébergeur.
+const envKey = (name) =>
+  String(process.env[name] ?? "")
+    .trim()
+    .replace(/^["']+|["']+$/g, "")
+    .trim();
 
 // Comparaison de la clé en temps constant (évite de deviner la clé par mesure du temps de réponse).
 const sameKey = (given, expected) =>
@@ -43,7 +50,7 @@ app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));
 // à retirer (supprimer QR_KEY) une fois le numéro connecté.
 app.get("/qr", async (req, res, next) => {
   try {
-    const expected = process.env.QR_KEY;
+    const expected = envKey("QR_KEY");
     if (!expected || !sameKey(req.query.key, expected)) return res.status(404).end();
 
     res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
@@ -67,9 +74,26 @@ app.get("/qr", async (req, res, next) => {
   }
 });
 
+// Empreinte d'une clé pour les logs : longueur + 8 caractères d'un hash. Permet de comparer la clé
+// envoyée par le backend et celle du service SANS jamais écrire la clé elle-même.
+const fingerprintOf = (value) =>
+  value ? `longueur ${value.length}, empreinte ${createHash("sha256").update(value).digest("hex").slice(0, 8)}` : "absente";
+let lastAuthLog = 0;
+function logRefusedKey(req, given, expected) {
+  const now = Date.now();
+  if (now - lastAuthLog < 10_000) return; // au plus un log toutes les 10 s
+  lastAuthLog = now;
+  console.warn(
+    `[auth] ${req.method} ${req.path} refusé — clé reçue : ${fingerprintOf(given)} ; clé attendue (API_KEY) : ${expected ? fingerprintOf(expected) : "API_KEY non définie"}`,
+  );
+}
+
 app.use((req, res, next) => {
-  const expected = process.env.API_KEY;
-  if (!expected || !sameKey(req.header("x-api-key"), expected)) {
+  const expected = envKey("API_KEY");
+  // La clé reçue est lue sans espaces ni guillemets parasites, comme la clé attendue.
+  const given = String(req.header("x-api-key") ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+  if (!expected || !sameKey(given, expected)) {
+    logRefusedKey(req, given, expected);
     return res.status(401).json({ error: "Clé API invalide ou manquante." });
   }
   next();
@@ -83,7 +107,14 @@ function normalizePhone(input) {
 }
 
 app.get("/health", (_req, res) => {
-  res.json({ ready: isReady(), queueLength: queueLength() });
+  res.json({
+    ready: isReady(),
+    queueLength: queueLength(),
+    // Détails pour diagnostiquer : état de la connexion WhatsApp, dernière fermeture, stockage de la session.
+    whatsapp: getStatus(),
+    stockageSession: process.env.SESSION_STORE === "supabase" ? "supabase" : "fichiers",
+    enMarcheDepuisSecondes: Math.round(process.uptime()),
+  });
 });
 
 app.get("/templates", (_req, res) => {
@@ -226,7 +257,7 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: "Erreur interne." });
 });
 
-if (!process.env.API_KEY) {
+if (!envKey("API_KEY")) {
   console.error("API_KEY non défini : toutes les requêtes seront refusées (401).");
 }
 
