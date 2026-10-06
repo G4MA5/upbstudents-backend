@@ -166,6 +166,16 @@ curl -X POST -H "x-api-key: VOTRE_API_KEY" https://VOTRE-SERVICE.onrender.com/re
 
 **Contrôler la remise des messages** : après un envoi, `GET /health` (avec la clé) affiche `whatsapp.messages` : `envoyes` (acceptés par le service), `accusesServeur` (reçus par WhatsApp), `accusesLivres` (arrivés sur le téléphone du destinataire), `accusesLus`. Si `accusesLivres` reste à 0 alors que `envoyes` monte, le message n'atteint pas le téléphone.
 
+## 10 ter. Erreur 463 dans les logs (« received error in ack »)
+
+Le service dit « envoyé », puis WhatsApp rejette le message avec l'erreur **463** (`NackCallerReachoutTimelocked`). C'est une **limitation du compte WhatsApp** : il ne peut pas (ou plus, pour un temps) écrire à des personnes qui ne lui ont jamais écrit, surtout un numéro récent qui envoie en rafale. Depuis 2026, WhatsApp exige pour cela un jeton de confiance (`tctoken`) que les anciennes versions de la bibliothèque gèrent mal.
+
+- Le service utilise **Baileys 7.0.0-rc14** (version de test), qui gère ces jetons. L'ancienne 6.7.24 ne les gérait presque pas.
+- Après la mise à jour, faites la **réinitialisation de la session** (section 10 bis) pour repartir d'une session propre.
+- La limitation est **liée au temps** : si elle est déjà installée sur le numéro, elle ne disparaît pas tout de suite. Envoyez peu de messages, faites vivre le numéro normalement (conversations, contacts qui lui écrivent), et évitez les diffusions massives les premiers jours.
+- Si le 463 persiste malgré tout, la solution durable est l'**API officielle WhatsApp Business (Meta)**, qui n'a pas ces limitations.
+- Installer en local avec une version récente de npm (11 ou plus) peut exiger l'option `--allow-git=all`, car une dépendance de Baileys est téléchargée depuis GitHub. Render et Docker (qui ont `git`) n'ont pas ce souci.
+
 ## 11. Dépannage
 
 | Symptôme | Cause probable et action |
