@@ -83,6 +83,18 @@ async function load() {
   }
 }
 
+/**
+ * Relit la file depuis le stockage. Appelé quand cette instance obtient le verrou WhatsApp : pendant qu'elle
+ * attendait, l'instance précédente a pu envoyer des messages, et sa copie en mémoire serait périmée
+ * (risque de renvoyer des messages déjà partis).
+ */
+export async function reloadQueue() {
+  urgent.length = 0;
+  bulk.length = 0;
+  campaigns.clear();
+  await load();
+}
+
 /** À appeler au démarrage : recharge la sauvegarde puis reprend l'envoi (la boucle attend WhatsApp). */
 export async function initQueue() {
   await load();

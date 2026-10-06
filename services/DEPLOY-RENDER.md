@@ -145,6 +145,27 @@ L'adresse `onrender.com` suffit. Pour une adresse à vous, par exemple `wa.votre
 - **Sécurité** : la clé `service_role` de Supabase donne un accès complet à la base. Elle n'est saisie que dans Render (et dans votre `.env` privé). Ne la mettez jamais dans le frontend ni dans Git.
 - **Un seul service gratuit allumé en continu** par compte Render (750 h par mois).
 
+## 10 bis. Une seule instance à la fois (verrou) et session propre
+
+**Le risque** : pendant un déploiement ou un réveil, Render peut faire tourner **deux copies** du service. Si elles utilisent toutes deux la session WhatsApp, elles s'éjectent mutuellement (log « conflict / replaced », code 440) et mélangent les clés de chiffrement : les destinataires voient alors **« En attente de ce message »**.
+
+**La protection** : un verrou stocké dans Supabase (ligne `lock` de `wa_state`, renouvelée toutes les 10 s) ne laisse qu'**une seule instance** se connecter. L'autre attend (et répond 503 aux envois, que le backend réessaiera). Si la première disparaît, l'autre prend la main en moins de 40 secondes. `GET /health` montre l'état : `whatsapp.verrou`.
+
+**Repartir d'une session propre** (à faire une fois après la mise à jour, ou si les destinataires voient « En attente de ce message ») :
+
+1. Sur le téléphone du numéro dédié : WhatsApp → **Appareils connectés** → retirez les anciens appareils (doublons).
+2. Render → *Environment* → ajoutez `QR_KEY` (valeur au choix) et enregistrez.
+3. Déclenchez la réinitialisation :
+
+```bash
+curl -X POST -H "x-api-key: VOTRE_API_KEY" https://VOTRE-SERVICE.onrender.com/reset-session
+```
+
+4. Ouvrez `https://VOTRE-SERVICE.onrender.com/qr?key=VOTRE_QR_KEY` et scannez le QR code.
+5. Supprimez la variable `QR_KEY`.
+
+**Contrôler la remise des messages** : après un envoi, `GET /health` (avec la clé) affiche `whatsapp.messages` : `envoyes` (acceptés par le service), `accusesServeur` (reçus par WhatsApp), `accusesLivres` (arrivés sur le téléphone du destinataire), `accusesLus`. Si `accusesLivres` reste à 0 alors que `envoyes` monte, le message n'atteint pas le téléphone.
+
 ## 11. Dépannage
 
 | Symptôme | Cause probable et action |
@@ -153,7 +174,8 @@ L'adresse `onrender.com` suffit. Pour une adresse à vous, par exemple `wa.votre
 | `/qr` répond 404 | `QR_KEY` absente ou erronée dans l'adresse (c'est voulu quand elle est supprimée) |
 | `/qr` : « Connexion en cours… » qui ne change pas | Patientez 30 s ; regardez les logs Render. Si ça persiste : redémarrez le service |
 | `ready: false` après un redémarrage | Reconnexion en cours (30 s). Si ça dure : numéro déconnecté depuis le téléphone → la session est effacée et un nouveau QR apparaît sur `/qr` (ajoutez de nouveau `QR_KEY`) |
-| Message « Session reprise par une autre instance » | Deux instances utilisent la même session (déploiement qui se chevauche, ou service encore lancé sur votre PC) : arrêtez l'autre ; le service réessaie seul après 60 s |
+| Message « Session reprise par une autre instance » (code 440) | Deux instances utilisent la même session. Le verrou l'évite entre copies Render ; si ça persiste, une autre copie tourne ailleurs (votre PC avec la même session) : arrêtez-la, puis faites la réinitialisation de la section 10 bis |
+| Les destinataires voient « En attente de ce message » | Clés de chiffrement abîmées (souvent par deux instances simultanées) : réinitialisez la session (section 10 bis) |
 | La page Diffusion affiche « Espace réservé » | E-mail absent de `BROADCAST_ADMIN_EMAILS`, ou backend Vercel non redéployé |
 | Diffusion refusée, erreur 503 | Migration 1 ou 3 non appliquée dans Supabase |
 | Le premier envoi après une longue pause est lent | UptimeRobot ne fonctionne pas : le service se réveillait. Vérifiez le moniteur |

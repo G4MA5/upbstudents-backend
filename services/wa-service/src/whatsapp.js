@@ -4,7 +4,9 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys";
 import pino from "pino";
 import qrcode from "qrcode-terminal";
+import { randomUUID } from "node:crypto";
 import { useAuthState } from "./authState.js";
+import * as remote from "./remote.js";
 
 // Bruit connu de Baileys 6.7.x : les messages REÇUS (réponses, échos de nos propres
 // envois) ne peuvent pas être déchiffrés depuis le passage de WhatsApp aux
@@ -57,7 +59,13 @@ const status = {
   derniereErreurDemarrage: null,
 };
 const iso = () => new Date().toISOString();
-export const getStatus = () => ({ ...status, qrEnAttente: lastQr !== null, messages: { ...stats } });
+export const getStatus = () => ({
+  ...status,
+  qrEnAttente: lastQr !== null,
+  verrou: !remote.remoteEnabled() ? "non utilisé" : hasLease ? "détenu par cette instance" : "détenu par une autre instance",
+  instance: instanceId,
+  messages: { ...stats },
+});
 
 // Copie des derniers messages envoyés (id → contenu), pour répondre aux demandes de renvoi.
 const sentMessages = new Map();
@@ -65,6 +73,96 @@ const MAX_SENT_KEPT = 1000;
 
 // Compteurs depuis le démarrage du service (affichés par /health).
 const stats = { envoyes: 0, accusesServeur: 0, accusesLivres: 0, accusesLus: 0, erreursMessage: 0 };
+
+// ---------- Verrou : une seule instance connectée à WhatsApp ----------
+// Voir remote.js. Actif seulement avec SESSION_STORE=supabase (sinon une seule instance par construction).
+const LOCK_KEY = "lock";
+const instanceId = `${process.env.RENDER_INSTANCE_ID || process.env.HOSTNAME || "local"}-${randomUUID().slice(0, 8)}`;
+const LEASE_TTL_MS = (Number(process.env.LEASE_TTL_SECONDS) || 40) * 1000;
+const LEASE_RENEW_MS = Math.max(2000, Math.floor(LEASE_TTL_MS / 4));
+let hasLease = false;
+let leaseTimer = null;
+let leaseValidUntil = 0;
+let onLeaseAcquired = async () => {};
+
+/** true si cette instance a le droit de parler à WhatsApp (toujours vrai sans stockage partagé). */
+export const holdsLease = () => !remote.remoteEnabled() || hasLease;
+
+/** Appelé à chaque prise du verrou (ex. relire la file, que l'instance précédente a pu faire avancer). */
+export const setLeaseHook = (fn) => {
+  onLeaseAcquired = fn;
+};
+
+function loseLease(reason) {
+  console.error(`[verrou] ${reason} : arrêt de la connexion WhatsApp de cette instance.`);
+  hasLease = false;
+  if (leaseTimer) clearInterval(leaseTimer);
+  leaseTimer = null;
+  ready = false;
+  status.etat = "en_attente_de_verrou";
+  try {
+    sock?.end(undefined);
+  } catch {
+    // Socket déjà fermée.
+  }
+  sock = null;
+  scheduleReconnect(LEASE_RENEW_MS);
+}
+
+function startLeaseRenewal() {
+  if (leaseTimer) return;
+  leaseTimer = setInterval(async () => {
+    try {
+      if (await remote.acquireLock(LOCK_KEY, instanceId, LEASE_TTL_MS)) {
+        leaseValidUntil = Date.now() + LEASE_TTL_MS;
+        return;
+      }
+      loseLease("une autre instance a pris le verrou");
+    } catch (err) {
+      // Supabase injoignable : on continue tant que notre bail n'a pas expiré (marge de 5 s),
+      // car passé ce délai une autre instance peut légitimement prendre la main.
+      console.error("[verrou] renouvellement impossible :", err.message);
+      if (Date.now() > leaseValidUntil - 5000) loseLease("bail expiré sans pouvoir le renouveler");
+    }
+  }, LEASE_RENEW_MS);
+}
+
+/**
+ * Repart d'une session propre : déconnecte l'appareil côté WhatsApp (il disparaît de « Appareils connectés »),
+ * efface la session stockée puis redémarre la connexion, qui affiche un nouveau QR code (page /qr).
+ * À utiliser quand les destinataires voient « En attente de ce message » ou après un conflit de session.
+ */
+export async function resetSession() {
+  ready = false;
+  try {
+    // logout() prévient WhatsApp ; on n'attend pas plus de 8 s si la session est déjà cassée.
+    await Promise.race([sock?.logout(), new Promise((resolve) => setTimeout(resolve, 8000))]);
+  } catch {
+    // Session déjà inutilisable : on efface quand même.
+  }
+  try {
+    sock?.end(undefined);
+  } catch {
+    // Socket déjà fermée.
+  }
+  await auth?.clear();
+  lastQr = null;
+  status.etat = "session_effacée";
+  scheduleReconnect(1500);
+}
+
+/** Arrêt propre : libère le verrou pour que la prochaine instance prenne la main tout de suite. */
+export async function releaseLease() {
+  if (leaseTimer) clearInterval(leaseTimer);
+  leaseTimer = null;
+  if (!remote.remoteEnabled() || !hasLease) return;
+  hasLease = false;
+  try {
+    await remote.releaseLock(LOCK_KEY, instanceId);
+  } catch (err) {
+    console.error("[verrou] libération impossible (le bail expirera seul) :", err.message);
+  }
+}
 
 /** Écrit la session en attente (à appeler avant l'arrêt du processus). */
 export const flushAuth = () => (auth ? auth.flush() : Promise.resolve());
@@ -79,6 +177,30 @@ function scheduleReconnect(delay) {
 }
 
 export async function startWhatsApp() {
+  // Une seule instance à la fois : sans le verrou, on attend (l'autre instance finira par s'arrêter).
+  if (remote.remoteEnabled() && !hasLease) {
+    let acquired = false;
+    try {
+      acquired = await remote.acquireLock(LOCK_KEY, instanceId, LEASE_TTL_MS);
+    } catch (err) {
+      console.error("[verrou] impossible de contacter Supabase :", err.message);
+    }
+    if (!acquired) {
+      status.etat = "en_attente_de_verrou";
+      scheduleReconnect(LEASE_RENEW_MS);
+      return;
+    }
+    hasLease = true;
+    leaseValidUntil = Date.now() + LEASE_TTL_MS;
+    console.log(`[verrou] verrou obtenu par l'instance ${instanceId}`);
+    startLeaseRenewal();
+    try {
+      await onLeaseAcquired();
+    } catch (err) {
+      console.error("[verrou] relecture de la file impossible :", err.message);
+    }
+  }
+
   let state;
   let saveCreds;
   let version;

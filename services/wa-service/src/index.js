@@ -11,10 +11,11 @@ import {
   hasCampaign,
   initQueue,
   queueLength,
+  reloadQueue,
   saveNow,
 } from "./queue.js";
 import { listTemplates, templates } from "./templates.js";
-import { currentQr, flushAuth, getStatus, isReady, startWhatsApp } from "./whatsapp.js";
+import { currentQr, flushAuth, getStatus, holdsLease, isReady, releaseLease, resetSession, setLeaseHook, startWhatsApp } from "./whatsapp.js";
 
 // Lit une clé d'environnement sans espaces ni guillemets collés par erreur dans le tableau de bord de l'hébergeur.
 const envKey = (name) =>
@@ -99,6 +100,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// Une instance qui n'a pas le verrou WhatsApp n'accepte pas d'envois : sa file en mémoire serait
+// écrasée par celle de l'instance active. Le backend réessaiera (503) quelques secondes plus tard.
+app.use(["/notify", "/send", "/broadcast", "/campaigns", "/reset-session"], (req, res, next) => {
+  if (req.method === "GET" || holdsLease()) return next();
+  res.status(503).json({ error: "Service en cours de démarrage, réessayez dans quelques secondes." });
+});
+
 /** Digits only, international format without "+"; 10 digits get the default country code. */
 function normalizePhone(input) {
   let digits = String(input ?? "").replace(/\D/g, "").replace(/^00/, "");
@@ -122,6 +130,13 @@ app.get("/templates", (_req, res) => {
 });
 
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch(next);
+
+// Réinitialise la session WhatsApp : nouveau QR code à scanner (page /qr, qui demande QR_KEY).
+app.post("/reset-session", wrap(async (_req, res) => {
+  await resetSession();
+  res.status(202).json({ message: "Session effacée. Ouvrez /qr?key=<QR_KEY> pour scanner le nouveau QR code." });
+}));
+
 
 /** Queues once per Idempotency-Key (or identical payload within 60 s). */
 async function queueOnce(req, res, scope, phone, message) {
@@ -270,6 +285,9 @@ try {
   process.exit(1);
 }
 
+// À chaque prise du verrou, on relit la file : l'instance précédente a pu envoyer des messages entre-temps.
+setLeaseHook(reloadQueue);
+
 const server = app.listen(PORT, () => console.log(`wa-service sur le port ${PORT}`));
 startWhatsApp().catch((err) => console.error("Démarrage WhatsApp :", err));
 
@@ -277,7 +295,9 @@ startWhatsApp().catch((err) => console.error("Démarrage WhatsApp :", err));
 for (const signal of ["SIGTERM", "SIGINT"]) {
   process.on(signal, () => {
     console.log(`${signal} reçu : sauvegarde de la file et de la session, puis arrêt.`);
-    Promise.allSettled([saveNow(), flushAuth()]).finally(() => server.close(() => process.exit(0)));
+    Promise.allSettled([saveNow(), flushAuth()])
+      .then(() => releaseLease())
+      .finally(() => server.close(() => process.exit(0)));
     setTimeout(() => process.exit(0), 8000).unref();
   });
 }

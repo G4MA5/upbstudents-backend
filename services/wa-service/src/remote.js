@@ -70,3 +70,41 @@ export async function removeKeys(keys) {
 
 export const removeByPrefix = (prefix) =>
   rest("DELETE", `?key=like.${enc(prefix)}*`, { headers: { Prefer: "return=minimal" } });
+
+// ---------- Verrou (une seule instance connectée à WhatsApp à la fois) ----------
+// Deux copies du service (déploiement qui se chevauche, réveil de l'hébergeur) qui utilisent la
+// même session WhatsApp se chassent mutuellement (code 440) et mélangent les clés de chiffrement :
+// les destinataires voient alors « En attente de ce message ». Le verrou est un « bail » stocké dans
+// la ligne "lock" de wa_state : valable ttlMs, renouvelé tant que l'instance vit, repris par une autre
+// si elle disparaît.
+const iso = (ms) => new Date(ms).toISOString();
+
+/** true si l'instance `owner` détient (ou vient de prendre) le verrou `name`. */
+export async function acquireLock(name, owner, ttlMs) {
+  const now = Date.now();
+  const value = { owner, expiresAt: iso(now + ttlMs) };
+
+  // 1) Première prise : la ligne n'existe pas encore, on la crée.
+  const created = await rest("POST", "?on_conflict=key", {
+    body: [{ key: name, value, updated_at: iso(now) }],
+    headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+  });
+  if (Array.isArray(created) && created.length > 0) return true;
+
+  // 2) La ligne existe : on la prend si le bail est expiré OU s'il est déjà à nous (renouvellement).
+  // Les dates ISO se comparent correctement comme du texte.
+  const condition = `or=(value->>expiresAt.lt.${enc(iso(now))},value->>owner.eq.${enc(owner)})`;
+  const updated = await rest("PATCH", `?key=eq.${enc(name)}&${condition}`, {
+    body: { value, updated_at: iso(now) },
+    headers: { Prefer: "return=representation" },
+  });
+  return Array.isArray(updated) && updated.length > 0;
+}
+
+/** Libère le verrou s'il est à nous (arrêt propre : la prochaine instance le prend tout de suite). */
+export async function releaseLock(name, owner) {
+  await rest("PATCH", `?key=eq.${enc(name)}&value->>owner=eq.${enc(owner)}`, {
+    body: { value: { owner: null, expiresAt: iso(0) }, updated_at: iso(Date.now()) },
+    headers: { Prefer: "return=minimal" },
+  });
+}
