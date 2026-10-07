@@ -181,8 +181,30 @@ async function findRecipients(target) {
 // 0778304287 → 07••••4287 (l'aperçu ne montre pas les numéros en entier)
 const maskPhone = (p) => `${p.slice(0, 2)}••••${p.slice(-4)}`;
 
-function readMessage(body) {
+// Pièce jointe facultative : { type: "sticker" | "image", data: "<base64>" }.
+// Le format réel du fichier est contrôlé par wa-service ; ici on bloque seulement les excès de taille.
+const MEDIA_MAX_BASE64 = { sticker: 700_000, image: 1_400_000 }; // ≈ 500 Ko / 1 Mo une fois décodés
+function readMedia(body) {
+  const media = body.media;
+  if (media === undefined || media === null) return null;
+  if (!["sticker", "image"].includes(media.type) || typeof media.data !== "string" || !media.data) {
+    throw new HttpError(400, "Pièce jointe invalide.");
+  }
+  if (media.data.length > MEDIA_MAX_BASE64[media.type]) {
+    throw new HttpError(
+      400,
+      media.type === "sticker"
+        ? "Le sticker est trop lourd (500 Ko maximum)."
+        : "L'image est trop lourde (1 Mo maximum).",
+    );
+  }
+  return { type: media.type, data: media.data };
+}
+
+// Le texte est obligatoire (5 caractères), sauf si la diffusion contient un sticker ou une image.
+function readMessage(body, hasMedia = false) {
   const message = cleanMultiline(body.message, MAX_MESSAGE_LENGTH);
+  if (hasMedia && message.length === 0) return "";
   if (message.length < 5) {
     throw new HttpError(400, "Le message est trop court (5 caractères minimum).");
   }
@@ -379,7 +401,8 @@ export const POST = route(async (req) => {
   }
 
   if (body.action === "envoyer") {
-    const message = readMessage(body);
+    const media = readMedia(body);
+    const message = readMessage(body, Boolean(media));
     rateLimit(`diffusion:${user.id}`, { limit: 5, windowMs: 60 * 60_000 });
 
     if (recipients.length === 0) {
@@ -425,7 +448,8 @@ export const POST = route(async (req) => {
         admin_user_id: user.id,
         admin_email: user.email,
         type: targetType(target),
-        cible: target,
+        // La pièce jointe elle-même n'est pas conservée en base : on garde seulement son type.
+        cible: media ? { ...target, media: media.type } : target,
         message,
         total: recipients.length,
         statut: "en_cours",
@@ -446,6 +470,7 @@ export const POST = route(async (req) => {
         campaignId,
         message,
         recipients: recipients.map(({ phone, prenom, nom }) => ({ phone, prenom, nom })),
+        media,
       });
     } catch (err) {
       await updateRow(campaignId, {

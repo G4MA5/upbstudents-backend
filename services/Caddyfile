@@ -3,9 +3,9 @@
 # Prérequis : l'enregistrement DNS de ce domaine pointe vers l'IP du serveur, ports 80 et 443 ouverts.
 
 {$WA_DOMAIN} {
-	# Les requêtes de diffusion contiennent une liste de destinataires : 2 Mo suffisent largement.
+	# Les diffusions contiennent une liste de destinataires et une pièce jointe (sticker/image) : 5 Mo suffisent.
 	request_body {
-		max_size 2MB
+		max_size 5MB
 	}
 	reverse_proxy wa-service:3001
 }

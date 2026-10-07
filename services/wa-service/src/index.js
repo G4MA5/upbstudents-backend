@@ -14,6 +14,7 @@ import {
   reloadQueue,
   saveNow,
 } from "./queue.js";
+import { saveMedia, sniffImage } from "./mediaStore.js";
 import { listTemplates, templates } from "./templates.js";
 import { currentQr, flushAuth, getStatus, holdsLease, isReady, releaseLease, resetSession, setLeaseHook, startWhatsApp } from "./whatsapp.js";
 
@@ -36,15 +37,23 @@ const DEFAULT_COUNTRY_CODE = String(process.env.DEFAULT_COUNTRY_CODE || "225").r
 const MAX_MESSAGE_LENGTH = 4000;
 const BROADCAST_MAX_RECIPIENTS = Number(process.env.BROADCAST_MAX_RECIPIENTS) || 1000;
 const BROADCAST_MAX_LENGTH = 1500;
+const MEDIA_MAX_STICKER = 500 * 1024;
+const MEDIA_MAX_IMAGE = 1024 * 1024;
 
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json({ limit: "1mb" }));
+// 4 Mo : liste de destinataires + pièce jointe (sticker ≤ 500 Ko, image ≤ 1 Mo) encodée en base64.
+app.use(express.json({ limit: "4mb" }));
 
 // ---------- Routes publiques (avant l'authentification) ----------
 // /ping : sans aucune donnée, pour les contrôles de disponibilité (UptimeRobot) qui
 // gardent un hébergeur gratuit éveillé (Render met en veille après 15 min sans requête).
 app.get("/ping", (_req, res) => res.type("text/plain").send("ok"));
+// La racine répond aussi « ok » (sans donnée) : un moniteur ou une vérification d'hébergeur réglés sur
+// l'adresse de base (UptimeRobot utilise HEAD /) ne reçoivent plus de refus.
+app.get("/", (_req, res) => res.type("text/plain").send("ok"));
+// Les navigateurs demandent l'icône quand on ouvre /qr : on répond « rien » sans refus ni log.
+app.get("/favicon.ico", (_req, res) => res.status(204).end());
 
 // /qr?key=<QR_KEY> : affiche le QR code dans le navigateur (le QR du terminal est peu
 // lisible dans les logs d'un hébergeur). Désactivée tant que QR_KEY n'est pas défini ;
@@ -187,12 +196,15 @@ app.post("/send", wrap(async (req, res) => {
 // Les messages partent dans une file séparée, derrière les messages urgents.
 // {prenom} et {nom} dans le texte sont remplacés pour chaque personne.
 app.post("/broadcast", wrap(async (req, res) => {
-  const { campaignId, message, recipients } = req.body || {};
+  const { campaignId, recipients } = req.body || {};
+  const rawMedia = req.body?.media ?? null;
+  // Le texte est obligatoire, sauf si la diffusion contient un sticker ou une image.
+  const message = typeof req.body?.message === "string" ? req.body.message : "";
 
   if (typeof campaignId !== "string" || !/^[\w:-]{8,100}$/.test(campaignId)) {
     return res.status(400).json({ error: "campaignId invalide (8 à 100 caractères : lettres, chiffres, - _ :)." });
   }
-  if (typeof message !== "string" || !message.trim()) {
+  if (!message.trim() && !rawMedia) {
     return res.status(400).json({ error: "message manquant." });
   }
   if (message.length > BROADCAST_MAX_LENGTH) {
@@ -203,6 +215,27 @@ app.post("/broadcast", wrap(async (req, res) => {
   }
   if (recipients.length > BROADCAST_MAX_RECIPIENTS) {
     return res.status(400).json({ error: `Trop de destinataires (${BROADCAST_MAX_RECIPIENTS} maximum).` });
+  }
+
+  // Pièce jointe facultative : { type: "sticker" | "image", data: "<base64>" }.
+  // On vérifie le VRAI format du fichier (signature), pas ce que le client déclare.
+  let media = null;
+  if (rawMedia) {
+    if (!["sticker", "image"].includes(rawMedia.type) || typeof rawMedia.data !== "string") {
+      return res.status(400).json({ error: "media invalide (type « sticker » ou « image » et data en base64)." });
+    }
+    const buffer = Buffer.from(rawMedia.data, "base64");
+    const mimetype = sniffImage(buffer);
+    const maxBytes = rawMedia.type === "sticker" ? MEDIA_MAX_STICKER : MEDIA_MAX_IMAGE;
+    if (!mimetype || (rawMedia.type === "sticker" && mimetype !== "image/webp")) {
+      return res.status(400).json({
+        error: rawMedia.type === "sticker" ? "Un sticker doit être un fichier WebP." : "Image non reconnue (JPEG, PNG ou WebP).",
+      });
+    }
+    if (buffer.length === 0 || buffer.length > maxBytes) {
+      return res.status(400).json({ error: `Pièce jointe trop lourde (${Math.round(maxBytes / 1024)} Ko maximum).` });
+    }
+    media = { type: rawMedia.type, mimetype, buffer };
   }
 
   // Même campagne rejouée (retry) : on renvoie son état, sans rien remettre en file.
@@ -238,8 +271,13 @@ app.post("/broadcast", wrap(async (req, res) => {
   const { value, duplicate } = await runOnce(
     req,
     "broadcast",
-    fingerprint(campaignId, message, entries.map((e) => e.phone)),
-    async () => ({ ...enqueueCampaign(campaignId, entries, message), invalid, duplicates }),
+    fingerprint(campaignId, message, entries.map((e) => e.phone), media ? createHash("sha256").update(media.buffer).digest("hex") : ""),
+    async () => {
+      // La pièce jointe est enregistrée UNE fois pour la campagne, avant de mettre les messages en file.
+      if (media) await saveMedia(campaignId, media);
+      const meta = media ? { type: media.type, mimetype: media.mimetype, size: media.buffer.length } : null;
+      return { ...enqueueCampaign(campaignId, entries, message, meta), invalid, duplicates };
+    },
   );
   console.log(`[broadcast] campagne ${campaignId} : ${entries.length} message(s) en file`);
   res.status(202).json({ ...value, duplicate });

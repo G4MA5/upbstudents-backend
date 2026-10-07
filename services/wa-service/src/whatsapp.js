@@ -16,6 +16,10 @@ const NOISE = [
   "failed to decrypt message",
   "Failed to decrypt message with any known session",
   "Session error:",
+  // Synchronisation des conversations juste après le scan : le téléphone envoie ses clés un peu plus tard.
+  // Sans effet sur l'envoi de messages.
+  "critical_block blocked on missing key",
+  "critical_unblock_low blocked on missing key",
 ];
 const isNoise = (value) => typeof value === "string" && NOISE.some((n) => value.startsWith(n));
 
@@ -57,6 +61,10 @@ const status = {
   derniereConnexionLe: null,
   reconnexions: 0,
   derniereErreurDemarrage: null,
+  // Restriction « nouvelles conversations » du compte (erreur 463) : { active, jusquau, type } ou null si inconnue.
+  restriction: null,
+  // Plafond de nouvelles conversations renvoyé par WhatsApp (brut), ou null si inconnu.
+  plafondNouvellesConversations: null,
 };
 const iso = () => new Date().toISOString();
 export const getStatus = () => ({
@@ -164,6 +172,13 @@ export async function releaseLease() {
   }
 }
 
+// Rejets signalés par WhatsApp APRÈS l'envoi (ex. erreur 463) : sendMessage a réussi, mais le serveur refuse le message.
+// La file s'abonne pour corriger l'historique (« refusé par WhatsApp » au lieu de « envoyé »).
+let deliveryErrorHandler = () => {};
+export const onDeliveryError = (fn) => {
+  deliveryErrorHandler = fn;
+};
+
 /** Écrit la session en attente (à appeler avant l'arrêt du processus). */
 export const flushAuth = () => (auth ? auth.flush() : Promise.resolve());
 
@@ -248,11 +263,27 @@ export async function startWhatsApp() {
       if (update.status === 2) stats.accusesServeur += 1;
       if (update.status === 3) stats.accusesLivres += 1;
       if (update.status === 4) stats.accusesLus += 1;
-      if (update.status === 0) stats.erreursMessage += 1;
+      if (update.status === 0) {
+        stats.erreursMessage += 1;
+        const code = String(update.messageStubParameters?.[0] ?? "inconnu");
+        console.error(`[whatsapp] message ${key.id} REFUSÉ par WhatsApp (code ${code})${code === "463" ? " : compte restreint pour écrire à un nouveau contact" : ""}`);
+        deliveryErrorHandler(key.id, code);
+      }
     }
   });
 
-  sock.ev.on("connection.update", ({ connection, lastDisconnect, qr }) => {
+  // WhatsApp signale (ou nous renvoie sur demande) la restriction « nouvelles conversations ».
+  sock.ev.on("message-capping.update", (payload) => {
+    status.plafondNouvellesConversations = payload ?? null;
+  });
+  const saveRestriction = (r) => {
+    status.restriction = r
+      ? { active: Boolean(r.isActive), jusquau: r.timeEnforcementEnds ? new Date(r.timeEnforcementEnds).toISOString() : null, type: r.enforcementType ?? null }
+      : null;
+  };
+
+  sock.ev.on("connection.update", ({ connection, lastDisconnect, qr, reachoutTimeLock }) => {
+    if (reachoutTimeLock) saveRestriction(reachoutTimeLock);
     if (qr) {
       lastQr = qr;
       console.log("Scannez ce QR code (WhatsApp → Appareils connectés), ou ouvrez la page /qr :");
@@ -264,6 +295,22 @@ export async function startWhatsApp() {
       status.etat = "connecté";
       status.derniereConnexionLe = iso();
       console.log("WhatsApp connecté.");
+      // On demande à WhatsApp si le compte est restreint et quel est son plafond (affiché par /health).
+      // En arrière-plan et sans bloquer : ces fonctions n'existent que dans les versions récentes.
+      setTimeout(async () => {
+        try {
+          saveRestriction(await sock?.fetchAccountReachoutTimelock?.());
+        } catch (err) {
+          console.warn("[whatsapp] restriction du compte : lecture impossible :", err?.message);
+        }
+        try {
+          status.plafondNouvellesConversations = (await sock?.fetchNewChatMessageCap?.()) ?? null;
+        } catch (err) {
+          console.warn("[whatsapp] plafond de nouvelles conversations : lecture impossible :", err?.message);
+        }
+        const r = status.restriction;
+        if (r?.active) console.warn(`[whatsapp] ⚠ compte RESTREINT pour écrire à de nouveaux contacts${r.jusquau ? ` jusqu'au ${r.jusquau}` : ""}.`);
+      }, 5000);
     }
     if (connection === "close") {
       ready = false;
@@ -300,7 +347,13 @@ export async function startWhatsApp() {
 }
 
 /** phone: digits only, international format without "+". */
-export async function sendText(phone, message) {
+/**
+ * @param {string} phone numéros au format international sans « + »
+ * @param {string} message texte (peut être vide si une pièce jointe est fournie)
+ * @param {{ type: "sticker" | "image", mimetype: string, buffer: Buffer } | null} [media]
+ * @returns {Promise<string[]>} identifiants WhatsApp des messages envoyés
+ */
+export async function sendText(phone, message, media = null) {
   if (!ready || !sock) throw new Error("WhatsApp non connecté");
 
   // Ask WhatsApp for the real JID: sendMessage "succeeds" even for numbers
@@ -323,12 +376,35 @@ export async function sendText(phone, message) {
     console.log(`[whatsapp] numéro ${phone} résolu en ${found.jid}`);
   }
 
-  const sent = await sock.sendMessage(found.jid, { text: message });
-  // On garde une copie du message pour pouvoir le renvoyer si le destinataire le demande.
-  if (sent?.key?.id && sent.message) {
-    sentMessages.set(sent.key.id, sent.message);
-    if (sentMessages.size > MAX_SENT_KEPT) sentMessages.delete(sentMessages.keys().next().value);
+  const ids = [];
+  const send = async (content) => {
+    const sent = await sock.sendMessage(found.jid, content);
+    // On garde une copie du message pour pouvoir le renvoyer si le destinataire le demande.
+    if (sent?.key?.id && sent.message) {
+      sentMessages.set(sent.key.id, sent.message);
+      if (sentMessages.size > MAX_SENT_KEPT) sentMessages.delete(sentMessages.keys().next().value);
+    }
+    stats.envoyes += 1;
+    console.log(`[whatsapp] accepté par le serveur : ${found.jid} (id ${sent?.key?.id})`);
+    if (sent?.key?.id) ids.push(sent.key.id);
+  };
+
+  if (media?.type === "image") {
+    // Image : le texte devient sa légende (un seul message).
+    await send({ image: media.buffer, mimetype: media.mimetype, caption: message || undefined });
+  } else {
+    if (message) await send({ text: message });
+    if (media?.type === "sticker") {
+      // Un sticker n'a pas de légende : il part dans un second message, juste après le texte.
+      if (message) await new Promise((resolve) => setTimeout(resolve, 1500));
+      try {
+        await send({ sticker: media.buffer, mimetype: "image/webp" });
+      } catch (err) {
+        // Le texte est déjà parti : on ne relance pas tout (il serait envoyé deux fois).
+        if (!message) throw err;
+        console.error("[whatsapp] sticker non envoyé (le texte est parti) :", err.message);
+      }
+    }
   }
-  stats.envoyes += 1;
-  console.log(`[whatsapp] accepté par le serveur : ${found.jid} (id ${sent?.key?.id})`);
+  return ids;
 }

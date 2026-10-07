@@ -419,3 +419,17 @@ Un étudiant ne reçoit un message WhatsApp (notification **ou** diffusion) que 
 - Diffusion : `findRecipients` exclut les étudiants non consentants ; l'aperçu indique combien sont exclus (`sansConsentement`). Pour un test sur votre propre adresse (`emails`), votre compte doit avoir accepté.
 - Les messages destinés à l'admin (`ADMIN_WHATSAPP`) ne sont pas concernés.
 - Les comptes sans numéro (ex. connexion Google) ne voient pas l'option.
+
+## Sticker ou image dans une diffusion
+
+Une diffusion peut contenir **un sticker** ou **une image**, en plus (ou à la place) du texte.
+
+| Pièce jointe | Format | Taille max | Comment elle part |
+|---|---|---|---|
+| **Sticker** | WebP 512 × 512 | 500 Ko (l'interface le convertit en < 100 Ko) | Dans un **second message**, juste après le texte (WhatsApp n'accepte pas de légende sur un sticker) ; seul si le texte est vide |
+| **Image** | JPEG, PNG ou WebP | 1 Mo (réduite automatiquement par l'interface) | **Un seul message** : le texte devient sa légende |
+
+- **Interface** : dans le formulaire de diffusion, section « Pièce jointe » → « Ajouter un sticker » ou « Ajouter une image ». N'importe quelle image est convertie en vrai sticker 512 × 512 (WebP) dans le navigateur (Chrome, Edge ou Firefox ; Safari ne sait pas encoder le WebP). Le texte devient facultatif quand il y a une pièce jointe (5 caractères minimum s'il est rempli).
+- **API Next** : `POST /api/diffusion` `{ action: "envoyer", …, media: { type: "sticker" | "image", data: "<base64>" } }`. L'historique garde seulement le type (« Avec sticker » / « Avec image »), pas le fichier.
+- **wa-service** : `POST /broadcast` accepte le même champ `media`. Le **vrai format** est contrôlé par la signature du fichier (un PNG présenté comme sticker est refusé). La pièce jointe est enregistrée **une seule fois par campagne** (fichier dans `DATA_DIR/media/` ou ligne `media:<id>` dans `wa_state`) puis supprimée à la fin de la campagne.
+- **Attention** : un sticker ajoute un message par destinataire (donc deux fois plus d'envois). Avec un compte restreint (erreur 463), le sticker est refusé comme le texte. Derrière Caddy, la taille maximale des requêtes est portée à 5 Mo.

@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+import { deleteMedia, loadMedia } from "./mediaStore.js";
 import * as remote from "./remote.js";
-import { isReady, sendText } from "./whatsapp.js";
+import { isReady, onDeliveryError, sendText } from "./whatsapp.js";
 
 const MIN_DELAY_MS = 3000;
 const MAX_DELAY_MS = 8000;
@@ -48,6 +49,31 @@ async function persist() {
     saveSoon(); // on réessaiera
   }
 }
+
+// Messages de diffusion envoyés : identifiant WhatsApp → destinataire. Sert à corriger le résultat si WhatsApp
+// refuse le message APRÈS l'envoi (erreur 463 : compte restreint). Gardé en mémoire seulement.
+const sentIndex = new Map();
+const MAX_SENT_INDEX = 3000;
+
+onDeliveryError((messageId, code) => {
+  const entry = sentIndex.get(messageId);
+  if (!entry || entry.handled) return; // message urgent ou inconnu (déjà tracé dans les logs), ou déjà traité
+  entry.handled = true; // texte + sticker partagent la même entrée : un seul échec compté
+  sentIndex.delete(messageId);
+  const c = campaigns.get(entry.campaignId);
+  if (!c) return;
+  // Le message avait été compté « envoyé » : on le bascule en échec.
+  c.sent = Math.max(0, c.sent - 1);
+  c.failed += 1;
+  const reason = `rejete_par_whatsapp_${code}`;
+  c.errors[reason] = (c.errors[reason] || 0) + 1;
+  c.failures ??= [];
+  if (c.failures.length < MAX_FAILURES_KEPT) {
+    c.failures.push({ numero: entry.original || entry.phone, nom: entry.name, raison: reason });
+  }
+  markFinished(c);
+  saveSoon();
+});
 
 /** Écrit immédiatement (arrêt du service, actions importantes). */
 export function saveNow() {
@@ -135,11 +161,13 @@ function messageOf(item) {
 /**
  * @param {string} template texte avec {prenom} / {nom}
  * @param entries [{ phone, original, prenom, nom }]
+ * @param media métadonnées de la pièce jointe { type, mimetype, size } (le fichier est dans mediaStore), ou null
  */
-export function enqueueCampaign(id, entries, template) {
+export function enqueueCampaign(id, entries, template, media = null) {
   campaigns.set(id, {
     id,
     template,
+    media,
     total: entries.length,
     sent: 0,
     failed: 0,
@@ -180,6 +208,7 @@ export function campaignSummary(id) {
     annules: c.cancelled,
     restants: Math.max(0, pending),
     erreurs: c.errors,
+    pieceJointe: c.media ? { type: c.media.type, taille: c.media.size } : null,
     echecsDetail: c.failures ?? [],
     creeLe: new Date(c.createdAt).toISOString(),
     termineLe: c.finishedAt ? new Date(c.finishedAt).toISOString() : null,
@@ -204,6 +233,7 @@ export function cancelCampaign(id) {
 function markFinished(c) {
   if (c.total - c.sent - c.failed - c.cancelled <= 0 && !c.finishedAt) {
     c.finishedAt = Date.now();
+    if (c.media) void deleteMedia(c.id); // la pièce jointe ne sert plus
   }
 }
 
@@ -242,9 +272,31 @@ async function loop() {
     const queue = urgent.length > 0 ? urgent : bulk;
     const item = queue[0];
     try {
-      await sendText(item.phone, messageOf(item));
+      const campaign = item.campaignId ? campaigns.get(item.campaignId) : null;
+      let media = null;
+      if (campaign?.media) {
+        media = await loadMedia(campaign.id);
+        if (!media) {
+          const lost = new Error("pièce jointe de la campagne introuvable");
+          lost.permanent = true;
+          lost.reason = "piece_jointe_introuvable";
+          throw lost;
+        }
+      }
+      const ids = await sendText(item.phone, messageOf(item), media);
       removeItem(queue, item);
       recordResult(item, null);
+      if (item.campaignId) {
+        const entry = {
+          campaignId: item.campaignId,
+          phone: item.phone,
+          original: item.original,
+          name: item.name || [item.prenom, item.nom].filter(Boolean).join(" "),
+          handled: false,
+        };
+        for (const id of ids) sentIndex.set(id, entry);
+        while (sentIndex.size > MAX_SENT_INDEX) sentIndex.delete(sentIndex.keys().next().value);
+      }
       console.log(`[queue] message envoyé à ${item.phone}`);
     } catch (err) {
       item.attempts += 1;
@@ -256,7 +308,7 @@ async function loop() {
       // Permanent errors (unknown number) are not retried.
       if (err?.permanent || item.attempts >= MAX_ATTEMPTS) {
         removeItem(queue, item);
-        recordResult(item, err?.permanent ? "numero_absent_de_whatsapp" : "echec_envoi");
+        recordResult(item, err?.reason ?? (err?.permanent ? "numero_absent_de_whatsapp" : "echec_envoi"));
       }
     }
     if (queueLength() > 0) await sleep(randomDelay());
