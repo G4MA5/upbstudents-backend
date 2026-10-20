@@ -8,6 +8,7 @@ import {
   requireUser,
   route,
 } from "../../../../lib/http.js";
+import { requestSiteRebuild } from "../../../../lib/rebuild.js";
 import { supabaseAdmin } from "../../../../lib/supabaseClient.js";
 
 const METHODS = "DELETE, OPTIONS";
@@ -54,6 +55,9 @@ export const DELETE = route(async (req) => {
     // file is harmless and only logged.
     console.error("[supprimer] fichier non supprimé", storageError);
   }
+
+  // Removes the document page and its sitemap entry from the website.
+  await requestSiteRebuild(`suppression du document ${docId}`);
 
   return ok(req, { message: "Le document a été supprimé." }, {}, METHODS);
 }, METHODS);

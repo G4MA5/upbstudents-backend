@@ -13,6 +13,7 @@ Voir `.env.example`. À ajouter sur Vercel en plus des variables existantes :
 | `GOOGLE_CLIENT_ID`         | Identifiant OAuth du client Web Google                                                                    |
 | `GOOGLE_CLIENT_SECRET`     | Secret OAuth du client Web Google (backend uniquement)                                                    |
 | `ADMIN_EMAIL`              | Reçoit les propositions de documents (par défaut `EMAIL_RECEIVER`)                                        |
+| `NETLIFY_BUILD_HOOK_URL`   | Optionnel : build hook Netlify du site. Le site est reconstruit à chaque document publié ou supprimé (pages et sitemaps à jour pour Google et les IA) |
 | `ALLOWED_ORIGINS`          | Origines CORS supplémentaires, séparées par des virgules                                                  |
 
 Dans Supabase → Authentication → URL Configuration, ajoutez
